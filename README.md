@@ -99,10 +99,12 @@ Supported controllers and mappings:
 
 ---
 
-## screenshot
+## screenshots
+
+<img width="962" height="799" alt="Screenshot 2025-10-16 114801" src="https://github.com/user-attachments/assets/3664ebfe-f984-45ec-b301-235b3ea437b8" />
 
 <img width="482" height="319" alt="image" src="https://github.com/user-attachments/assets/9cdc5bde-563e-4475-87a2-d78870f416f1" />
 
 
-<img width="962" height="799" alt="Screenshot 2025-10-16 114801" src="https://github.com/user-attachments/assets/3664ebfe-f984-45ec-b301-235b3ea437b8" />
+
 
