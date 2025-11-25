@@ -11,7 +11,7 @@ PS3_PYTHON="/usr/local/bin/ps3_to_keys.py"
 ICEWM_MENU="$HOME/.icewm/menu"
 AUTOSTART_DIR="$HOME/.config/autostart"
 ANTIMICROX_PROFILE="$HOME/.config/antimicrox/bootmenu_gamepad_profile.amgp"
-conf="retro/config"
+conf="retro/conf"
 # -------------------------------
 # WARNING / ACKNOWLEDGEMENT
 # -------------------------------
