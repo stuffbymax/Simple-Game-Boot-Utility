@@ -1,80 +1,82 @@
+# name: emu-installer
+# version: 0.1.0
+# creator: stuffbymax (martinP)
+# description: Distro-agnostic script to install or compile popular emulators.
+
 #!/bin/bash
-# install_all_emulators_debian_nobackslash.sh
-# Debian emulator installer with automatic yes, no line continuations
-# rewrite from netbsd
+
+
+set -e
+
+# Detect package manager
+if command -v apt >/dev/null 2>&1; then
+    PKG_INSTALL="sudo apt install -y"
+    PKG_UPDATE="sudo apt update"
+elif command -v pacman >/dev/null 2>&1; then
+    PKG_INSTALL="sudo pacman -S --noconfirm"
+    PKG_UPDATE="sudo pacman -Sy"
+elif command -v dnf >/dev/null 2>&1; then
+    PKG_INSTALL="sudo dnf install -y"
+    PKG_UPDATE="sudo dnf check-update"
+else
+    echo "No supported package manager found (apt, pacman, dnf). Exiting."
+    exit 1
+fi
 
 echo "Choose installation method:"
-echo "1) Install prebuilt packages (apt)"
-echo "2) Compile from source (manual)"
-echo "3) exit"
-read -p "Enter 1 or 3: " method
+echo "1) Install prebuilt packages"
+echo "2) Compile from source"
+echo "3) Exit"
+read -rp "Enter 1, 2, or 3: " method
 
 if [ "$method" = "1" ]; then
     echo "Updating package list..."
-    sudo apt update
+    $PKG_UPDATE
 
-    echo "Installing PC & DOS emulators..."
-    sudo apt install -y qemu
-    sudo apt install -y bochs
-    sudo apt install -y dosbox
-    sudo apt install -y bsnes
-    sudo apt install -y snes9x
-    sudo apt install -y fceux
-    sudo apt install -y genesis-plus-gx
-    sudo apt install -y mednafen
-    sudo apt install -y ppsspp
-    sudo apt install -y pcsx2
-    sudo apt install -y dolphin
-    sudo apt install -y atari800
-    sudo apt install -y aranym
-    sudo apt install -y arcem
-    sudo apt install -y b-em
-    sudo apt install -y vice
-    sudo apt install -y arnold
-    sudo apt install -y advancemame
-    sudo apt install -y blastem
-    sudo apt install -y cannonball
-    sudo apt install -y emulationstation
-    sudo apt install -y retroarch
+    echo "Installing emulators..."
+    for pkg in qemu bochs dosbox bsnes snes9x fceux genesis-plus-gx mednafen ppsspp pcsx2 dolphin \
+               atari800 aranym arcem b-em vice arnold advancemame blastem cannonball \
+               emulationstation retroarch; do
+        $PKG_INSTALL "$pkg" || echo "Package $pkg not available for your distro."
+    done
 
-    echo "All emulators and RetroArch installed via apt."
+    echo "All available emulators installed."
 
 elif [ "$method" = "2" ]; then
     echo "Compiling emulators from source..."
-
     SRC_DIR="$HOME/src_emulators"
     mkdir -p "$SRC_DIR"
     cd "$SRC_DIR" || exit 1
 
-    echo "Compiling DOSBox..."
+    # Example: DOSBox
     if [ ! -d "dosbox" ]; then
         git clone https://github.com/dosbox-staging/dosbox-staging.git dosbox
     fi
     cd dosbox || exit
     ./autogen.sh
     ./configure
-    make
+    make -j"$(nproc)"
     sudo make install
     cd "$SRC_DIR"
 
-    echo "Compiling RetroArch..."
+    # Example: RetroArch
     if [ ! -d "retroarch" ]; then
         git clone https://github.com/libretro/RetroArch.git retroarch
     fi
     cd retroarch || exit
     ./configure
-    make
+    make -j"$(nproc)"
     sudo make install
 
     echo "Repeat compilation steps for other emulators as needed."
 
-elif ["$method" = 3 ]; then 
-    echo "exit it anisiated"
-    exit
+elif [ "$method" = "3" ]; then
+    echo "Exiting..."
+    exit 0
 
 else
     echo "Invalid choice. Exiting."
     exit 1
 fi
 
-echo "All selected emulators and RetroArch setup complete!"
+echo "Emulator setup complete!"
