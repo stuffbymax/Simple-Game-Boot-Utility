@@ -140,7 +140,14 @@ while true; do
             retroarch -f
             ;;
         steam:*)
-            ${ACTION#steam:}
+        # kill the gamepad python script
+           pkill -f ps3_to_keys.py || true
+           # launch steam in big picture
+           xinit /usr/bin/steam -bigpicture -- :0
+
+           # restart the python script
+            "$PS3_PYTHON" &
+            PS3_PID=$!
             ;;
         session:*)
             echo "exec ${ACTION#session:}" > ~/.xinitrc
