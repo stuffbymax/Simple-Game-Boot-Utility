@@ -1,37 +1,103 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-exec > >(tee -a ~/log.txt) 2>&1
+exec > >(tee -a "$HOME/log.txt") 2>&1
 
-USER_NAME=$(whoami)
+USER_NAME="$(whoami)"
 BOOTMENU="/usr/local/bin/bootmenu.sh"
 PS3_PYTHON="/usr/local/bin/ps3_to_keys.py"
-ANTIMICROX_PROFILE="$HOME/.config/antimicrox/bootmenu_gamepad_profile.amgp"
 
 # -------------------------------
 # WARNING
 # -------------------------------
 echo "WARNING: Experimental script"
-read -p "Continue? [y/N]: " CONFIRM
+read -r -p "Continue? [y/N]: " CONFIRM
 [[ "${CONFIRM,,}" != "y" ]] && exit 1
+
+# -------------------------------
+# Detect package manager
+# -------------------------------
+detect_pm() {
+    for pm in pacman apt dnf zypper xbps-install apk; do
+        command -v "$pm" >/dev/null && echo "$pm" && return
+    done
+    echo "unsupported"
+}
+
+PM="$(detect_pm)"
+
+install_packages() {
+    case "$PM" in
+        pacman)
+            sudo pacman -Sy --needed --noconfirm \
+                retroarch retroarch-assets \
+                xorg-server xorg-xinit xorg-xinput \
+                dialog antimicrox onboard \
+                python-evdev python-uinput \
+                wget curl unzip sudo neovim tmux
+            ;;
+        apt)
+            sudo apt update
+            sudo apt install -y \
+                retroarch retroarch-assets \
+                xinit xserver-xorg-core xserver-xorg-input-all \
+                dialog antimicrox onboard \
+                python3-evdev python3-uinput \
+                wget curl unzip sudo neovim tmux
+            ;;
+        dnf)
+            sudo dnf install -y \
+                retroarch retroarch-assets \
+                xorg-x11-server-Xorg xorg-x11-xinit \
+                dialog antimicrox onboard \
+                python3-evdev python3-uinput \
+                wget curl unzip sudo neovim tmux
+            ;;
+        zypper)
+            sudo zypper install -y \
+                retroarch retroarch-assets \
+                xorg-x11-server xinit \
+                dialog antimicrox onboard \
+                python3-evdev python3-uinput \
+                wget curl unzip sudo neovim tmux
+            ;;
+        xbps-install)
+            sudo xbps-install -Sy \
+                retroarch retroarch-assets \
+                xorg-minimal xinit \
+                dialog antimicrox onboard \
+                python3-evdev python3-uinput \
+                wget curl unzip sudo neovim tmux
+            ;;
+        apk)
+            sudo apk add \
+                retroarch \
+                xorg-server xinit \
+                dialog antimicrox onboard \
+                py3-evdev py3-uinput \
+                wget curl unzip sudo neovim tmux
+            ;;
+        *)
+            echo "No supported package manager found"
+            exit 1
+            ;;
+    esac
+}
 
 # -------------------------------
 # Packages
 # -------------------------------
-sudo apt update
-sudo apt install -y \
-    retroarch retroarch-assets \
-    xinit xserver-xorg-core xserver-xorg-input-all \
-    dialog antimicrox onboard \
-    python3-evdev python3-uinput \
-    wget curl unzip sudo neovim tmux
+install_packages
 
 # -------------------------------
 # uinput
 # -------------------------------
-sudo modprobe uinput
-sudo chmod 777 /dev/uinput
-echo "uinput" | sudo tee /etc/modules-load.d/uinput.conf
+sudo modprobe uinput || true
+sudo chmod 666 /dev/uinput || true
+
+if command -v systemctl >/dev/null; then
+    echo "uinput" | sudo tee /etc/modules-load.d/uinput.conf >/dev/null
+fi
 
 # -------------------------------
 # Controller mapper
@@ -62,24 +128,26 @@ BTN_MAP = {
 }
 
 device.grab()
+
 for e in device.read_loop():
     if e.type == evdev.ecodes.EV_KEY and e.code in BTN_MAP:
         ui.emit(BTN_MAP[e.code], e.value)
     elif e.type == evdev.ecodes.EV_ABS:
         if e.code == evdev.ecodes.ABS_HAT0Y:
-            ui.emit(uinput.KEY_UP if e.value == -1 else uinput.KEY_DOWN, 1)
-            ui.emit(uinput.KEY_UP if e.value == -1 else uinput.KEY_DOWN, 0)
-        if e.code == evdev.ecodes.ABS_HAT0X:
-            ui.emit(uinput.KEY_LEFT if e.value == -1 else uinput.KEY_RIGHT, 1)
-            ui.emit(uinput.KEY_LEFT if e.value == -1 else uinput.KEY_RIGHT, 0)
+            key = uinput.KEY_UP if e.value == -1 else uinput.KEY_DOWN
+            ui.emit(key, 1); ui.emit(key, 0)
+        elif e.code == evdev.ecodes.ABS_HAT0X:
+            key = uinput.KEY_LEFT if e.value == -1 else uinput.KEY_RIGHT
+            ui.emit(key, 1); ui.emit(key, 0)
 EOF
+
 sudo chmod +x "$PS3_PYTHON"
 
 # -------------------------------
-# Boot menu (AUTO-DETECT)
+# Boot menu
 # -------------------------------
 sudo tee "$BOOTMENU" >/dev/null << 'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 
 detect_sessions() {
     for f in /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop; do
@@ -91,8 +159,9 @@ detect_sessions() {
 }
 
 detect_steam() {
-    command -v steam && echo steam && return
-    command -v flatpak && flatpak list | grep -qi steam && echo "flatpak run com.valvesoftware.Steam"
+    command -v steam >/dev/null && echo steam && return
+    command -v flatpak >/dev/null && flatpak list | grep -qi steam \
+        && echo "flatpak run com.valvesoftware.Steam"
 }
 
 "$PS3_PYTHON" &
@@ -103,18 +172,18 @@ while true; do
     ACTIONS=()
     i=1
 
-    if command -v retroarch >/dev/null; then
+    command -v retroarch >/dev/null && {
         ITEMS+=($i "RetroArch")
         ACTIONS+=("retroarch")
         ((i++))
-    fi
+    }
 
-    STEAM=$(detect_steam)
-    if [ -n "$STEAM" ]; then
+    STEAM=$(detect_steam || true)
+    [ -n "$STEAM" ] && {
         ITEMS+=($i "Steam")
         ACTIONS+=("steam:$STEAM")
         ((i++))
-    fi
+    }
 
     while IFS='|' read -r name exec; do
         ITEMS+=($i "$name")
@@ -132,7 +201,7 @@ while true; do
     CHOICE=$(dialog --menu "Boot Menu" 20 60 15 "${ITEMS[@]}" 3>&1 1>&2 2>&3)
     clear
 
-    kill $PS3_PID 2>/dev/null || true
+    kill "$PS3_PID" 2>/dev/null || true
     ACTION="${ACTIONS[$((CHOICE-1))]}"
 
     case "$ACTION" in
@@ -140,17 +209,11 @@ while true; do
             retroarch -f
             ;;
         steam:*)
-        # kill the gamepad python script
-           pkill -f ps3_to_keys.py || true
-           # launch steam in big picture
-           xinit /usr/bin/steam -bigpicture -- :0
-
-           # restart the python script
-            "$PS3_PYTHON" &
-            PS3_PID=$!
+            pkill -f ps3_to_keys.py || true
+            xinit ${ACTION#steam:} -bigpicture -- :0
             ;;
         session:*)
-            echo "exec ${ACTION#session:}" > ~/.xinitrc
+            echo "exec ${ACTION#session:}" > "$HOME/.xinitrc"
             antimicrox --hidden &
             onboard &
             startx
@@ -170,20 +233,23 @@ while true; do
     PS3_PID=$!
 done
 EOF
+
 sudo chmod +x "$BOOTMENU"
 
 # -------------------------------
-# Autologin tty1
+# Autologin (systemd only)
 # -------------------------------
-sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
-sudo tee /etc/systemd/system/getty@tty1.service.d/override.conf >/dev/null << EOF
+if command -v systemctl >/dev/null; then
+    sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
+    sudo tee /etc/systemd/system/getty@tty1.service.d/override.conf >/dev/null << EOF
 [Service]
 ExecStart=
 ExecStart=-/sbin/agetty --autologin $USER_NAME --noclear %I \$TERM
 EOF
-sudo systemctl daemon-reexec
+    sudo systemctl daemon-reexec
+fi
 
-grep -qxF '[ "$(tty)" = "/dev/tty1" ] && exec /usr/local/bin/bootmenu.sh' ~/.bash_profile || \
-echo '[ "$(tty)" = "/dev/tty1" ] && exec /usr/local/bin/bootmenu.sh' >> ~/.bash_profile
+grep -qxF '[ "$(tty)" = "/dev/tty1" ] && exec /usr/local/bin/bootmenu.sh' "$HOME/.bash_profile" \
+    || echo '[ "$(tty)" = "/dev/tty1" ] && exec /usr/local/bin/bootmenu.sh' >> "$HOME/.bash_profile"
 
 echo "DONE. Reboot."
