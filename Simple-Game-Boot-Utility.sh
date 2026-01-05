@@ -219,7 +219,7 @@ sudo chmod 777 $PS3_PYTHON
 # -------------------------------
 # Step 2: Boot menu script - Enhanced TUI
 # -------------------------------
-sudo tee $BOOTMENU > /dev/null << 'EOF'
+sudo tee $BOOTMENU > /dev/null << EOF
 #!/bin/bash
 
 # Colors for terminal output
