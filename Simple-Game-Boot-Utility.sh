@@ -260,9 +260,9 @@ get_system_info() {
 
 get_detailed_system_info() {
     clear
-    echo -e "\${CYAN}╔══════════════════════════════════════════════════════════════════╗\${NC}"
-    echo -e "\${CYAN}║\${NC}                  \${GREEN}System Information\${NC}                           \${CYAN}║\${NC}"
-    echo -e "\${CYAN}╚══════════════════════════════════════════════════════════════════╝\${NC}"
+    echo -e "\${CYAN}+==================================================================+\${NC}"
+    echo -e "\${CYAN}|\${NC}                  \${GREEN}System Information\${NC}                           \${CYAN}|\${NC}"
+    echo -e "\${CYAN}+==================================================================+\${NC}"
     echo ""
     
     # Hostname and uptime
@@ -271,7 +271,7 @@ get_detailed_system_info() {
     echo ""
     
     # Memory information
-    echo -e "\${GREEN}━━━ Memory Information ━━━\${NC}"
+    echo -e "\${GREEN}--- Memory Information ---\${NC}"
     free -h | awk 'NR==1 {printf "%-10s %10s %10s %10s %10s\\n", \$1, \$2, \$3, \$4, \$7} 
                    NR==2 {printf "%-10s %10s %10s %10s %10s\\n", \$1, \$2, \$3, \$4, \$7}'
     local mem_percent=\$(free | awk '/^Mem:/ {printf "%.1f", (\$3/\$2)*100}')
@@ -279,12 +279,12 @@ get_detailed_system_info() {
     echo ""
     
     # Disk information
-    echo -e "\${GREEN}━━━ Disk Information ━━━\${NC}"
+    echo -e "\${GREEN}--- Disk Information ---\${NC}"
     df -h | awk 'NR==1 || /^\\\/dev\\// {printf "%-20s %8s %8s %8s %5s %s\\n", \$1, \$2, \$3, \$4, \$5, \$6}'
     echo ""
     
     # CPU information
-    echo -e "\${GREEN}━━━ CPU Information ━━━\${NC}"
+    echo -e "\${GREEN}--- CPU Information ---\${NC}"
     if [ -f /proc/cpuinfo ]; then
         local cpu_model=\$(grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)
         local cpu_cores=\$(grep -c "^processor" /proc/cpuinfo)
@@ -305,21 +305,21 @@ get_detailed_system_info() {
     
     # Temperature if available
     if command -v sensors >/dev/null 2>&1; then
-        echo -e "\${GREEN}━━━ Temperature ━━━\${NC}"
+        echo -e "\${GREEN}--- Temperature ---\${NC}"
         sensors 2>/dev/null | grep -E "Core|temp" | head -5
         echo ""
     fi
     
-    echo -e "\${CYAN}╚══════════════════════════════════════════════════════════════════╝\${NC}"
+    echo -e "\${CYAN}+==================================================================+\${NC}"
     echo -e "\${YELLOW}Press Enter to return to menu...\${NC}"
     read
 }
 
 show_debug_menu() {
     clear
-    echo -e "\${CYAN}╔══════════════════════════════════════════════════════════════════╗\${NC}"
-    echo -e "\${CYAN}║\${NC}                    \${GREEN}Debug Menu\${NC}                                \${CYAN}║\${NC}"
-    echo -e "\${CYAN}╚══════════════════════════════════════════════════════════════════╝\${NC}"
+    echo -e "\${CYAN}+==================================================================+\${NC}"
+    echo -e "\${CYAN}|\${NC}                    \${GREEN}Debug Menu\${NC}                                \${CYAN}|\${NC}"
+    echo -e "\${CYAN}+==================================================================+\${NC}"
     echo ""
     
     PS3="Select debug option: "
@@ -471,19 +471,19 @@ while true; do
     if [ "\$DIALOG_TOOL" = "dialog" ]; then
         CHOICE=\$(dialog --colors \
             --backtitle "Game Boot Utility v2.0 | \$SYSINFO" \
-            --title "\Z2◆ Main Menu ◆\Zn" \
+            --title "\Z2Main Menu\Zn" \
             --ok-label "Select" \
             --menu "\nUse arrow keys to navigate, Enter to select:\n" 22 75 11 \
-            1 "🎮 RetroArch" "Launch RetroArch in fullscreen mode" \
-            2 "🖥️  IceWM" "Start IceWM desktop environment" \
-            3 "🖥️  XFCE4" "Start XFCE4 desktop environment" \
-            4 "⬆️  Update System" "Run apt update and upgrade" \
-            5 "📊 System Info" "View detailed system information" \
-            6 "🔧 Debug Menu" "Debugging tools and logs" \
-            7 "💻 Shell" "Open command line shell" \
-            8 "🌐 Network Config" "Configure network settings" \
-            9 "🔄 Reboot" "Restart the system" \
-            10 "⏻  Shutdown" "Power off the system" \
+            1 "RetroArch" "Launch RetroArch in fullscreen mode" \
+            2 "IceWM" "Start IceWM desktop environment" \
+            3 "XFCE4" "Start XFCE4 desktop environment" \
+            4 "Update System" "Run apt update and upgrade" \
+            5 "System Info" "View detailed system information" \
+            6 "Debug Menu" "Debugging tools and logs" \
+            7 "Shell" "Open command line shell" \
+            8 "Network Config" "Configure network settings" \
+            9 "Reboot" "Restart the system" \
+            10 "Shutdown" "Power off the system" \
             3>&1 1>&2 2>&3)
     else
         CHOICE=\$(whiptail \
@@ -551,9 +551,9 @@ while true; do
     4)
         # System update with animated progress bar
         clear
-        echo -e "\${GREEN}╔════════════════════════════════════════╗\${NC}"
-        echo -e "\${GREEN}║\${NC}    ${YELLOW}Updating System...${NC}             \${GREEN}║\${NC}"
-        echo -e "\${GREEN}╚════════════════════════════════════════╝\${NC}"
+        echo -e "\${GREEN}+========================================+\${NC}"
+        echo -e "\${GREEN}|\${NC}    ${YELLOW}Updating System...${NC}             \${GREEN}|\${NC}"
+        echo -e "\${GREEN}+========================================+\${NC}"
         echo ""
         echo -e "\${CYAN}Full log at /tmp/apt_update.log\${NC}\n"
         sudo apt update -y && sudo apt upgrade -y &> /tmp/apt_update.log &
@@ -574,14 +574,6 @@ while true; do
         sleep 2
         ;;
     5)
-        clear
-        echo -e "\${CYAN}╔════════════════════════════════════════╗\${NC}"
-        echo -e "\${CYAN}║\${NC}    \${GREEN}Entering Shell Environment\${NC}      \${CYAN}║\${NC}"
-        echo -e "\${CYAN}╚════════════════════════════════════════╝\${NC}"
-        echo -e "\${YELLOW}Type 'exit' to return to the menu\${NC}\n"
-        bash
-        ;;
-    5)
         get_detailed_system_info
         ;;
     6)
@@ -589,17 +581,17 @@ while true; do
         ;;
     7)
         clear
-        echo -e "\${CYAN}╔════════════════════════════════════════╗\${NC}"
-        echo -e "\${CYAN}║\${NC}    \${GREEN}Entering Shell Environment\${NC}      \${CYAN}║\${NC}"
-        echo -e "\${CYAN}╚════════════════════════════════════════╝\${NC}"
+        echo -e "\${CYAN}+========================================+\${NC}"
+        echo -e "\${CYAN}|\${NC}    \${GREEN}Entering Shell Environment\${NC}      \${CYAN}|\${NC}"
+        echo -e "\${CYAN}+========================================+\${NC}"
         echo -e "\${YELLOW}Type 'exit' to return to the menu\${NC}\n"
         bash
         ;;
     8)
         clear
-        echo -e "\${CYAN}╔════════════════════════════════════════╗\${NC}"
-        echo -e "\${CYAN}║\${NC}    \${GREEN}Network Configuration\${NC}            \${CYAN}║\${NC}"
-        echo -e "\${CYAN}╚════════════════════════════════════════╝\${NC}"
+        echo -e "\${CYAN}+========================================+\${NC}"
+        echo -e "\${CYAN}|\${NC}    \${GREEN}Network Configuration\${NC}            \${CYAN}|\${NC}"
+        echo -e "\${CYAN}+========================================+\${NC}"
         echo -e "\${YELLOW}Note: Limited keyboard mapping active\${NC}"
         echo -e "\${YELLOW}You may need a physical keyboard\${NC}\n"
         sleep 2
@@ -609,10 +601,10 @@ while true; do
         ;;
     9)
         if [ "\$DIALOG_TOOL" = "dialog" ]; then
-            dialog --colors --title "\Z1⚠ Confirm Reboot\Zn" \
+            dialog --colors --title "\Z1WARNING: Confirm Reboot\Zn" \
                 --yesno "Are you sure you want to reboot?" 7 50
         else
-            whiptail --title "⚠ Confirm Reboot" \
+            whiptail --title "WARNING: Confirm Reboot" \
                 --yesno "Are you sure you want to reboot?" 7 50
         fi
         if [ \$? -eq 0 ]; then
@@ -624,10 +616,10 @@ while true; do
         ;;
     10)
         if [ "\$DIALOG_TOOL" = "dialog" ]; then
-            dialog --colors --title "\Z1⚠ Confirm Shutdown\Zn" \
+            dialog --colors --title "\Z1WARNING: Confirm Shutdown\Zn" \
                 --yesno "Are you sure you want to shut down?" 7 50
         else
-            whiptail --title "⚠ Confirm Shutdown" \
+            whiptail --title "WARNING: Confirm Shutdown" \
                 --yesno "Are you sure you want to shut down?" 7 50
         fi
         if [ \$? -eq 0 ]; then

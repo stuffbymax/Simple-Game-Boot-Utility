@@ -24,7 +24,7 @@ This repository provides scripts to create an **automatic boot menu** on TTY1, i
   10. Shutdown
 
   **TUI Features:**
-  - Color-coded interface with emoji icons
+  - Color-coded interface with clear text labels
   - **Enhanced system information display:**
     - Real-time RAM monitoring (Total, Used, Free)
     - Disk usage statistics with percentage

@@ -204,9 +204,9 @@ get_system_info() {
 
 get_detailed_system_info() {
     clear
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}                  ${GREEN}System Information${NC}                           ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}+==================================================================+${NC}"
+    echo -e "${CYAN}|${NC}                  ${GREEN}System Information${NC}                           ${CYAN}|${NC}"
+    echo -e "${CYAN}+==================================================================+${NC}"
     echo ""
     
     # Hostname and uptime
@@ -215,7 +215,7 @@ get_detailed_system_info() {
     echo ""
     
     # Memory information
-    echo -e "${GREEN}━━━ Memory Information ━━━${NC}"
+    echo -e "${GREEN}--- Memory Information ---${NC}"
     free -h | awk 'NR==1 {printf "%-10s %10s %10s %10s %10s\n", $1, $2, $3, $4, $7} 
                    NR==2 {printf "%-10s %10s %10s %10s %10s\n", $1, $2, $3, $4, $7}'
     local mem_percent=$(free | awk '/^Mem:/ {printf "%.1f", ($3/$2)*100}')
@@ -223,12 +223,12 @@ get_detailed_system_info() {
     echo ""
     
     # Disk information
-    echo -e "${GREEN}━━━ Disk Information ━━━${NC}"
+    echo -e "${GREEN}--- Disk Information ---${NC}"
     df -h | awk 'NR==1 || /^\/dev\// {printf "%-20s %8s %8s %8s %5s %s\n", $1, $2, $3, $4, $5, $6}'
     echo ""
     
     # CPU information
-    echo -e "${GREEN}━━━ CPU Information ━━━${NC}"
+    echo -e "${GREEN}--- CPU Information ---${NC}"
     if [ -f /proc/cpuinfo ]; then
         local cpu_model=$(grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)
         local cpu_cores=$(grep -c "^processor" /proc/cpuinfo)
@@ -249,21 +249,21 @@ get_detailed_system_info() {
     
     # Temperature if available
     if command -v sensors >/dev/null 2>&1; then
-        echo -e "${GREEN}━━━ Temperature ━━━${NC}"
+        echo -e "${GREEN}--- Temperature ---${NC}"
         sensors 2>/dev/null | grep -E "Core|temp" | head -5
         echo ""
     fi
     
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}+==================================================================+${NC}"
     echo -e "${YELLOW}Press Enter to return to menu...${NC}"
     read
 }
 
 show_debug_menu() {
     clear
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}                    ${GREEN}Debug Menu${NC}                                ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}+==================================================================+${NC}"
+    echo -e "${CYAN}|${NC}                    ${GREEN}Debug Menu${NC}                                ${CYAN}|${NC}"
+    echo -e "${CYAN}+==================================================================+${NC}"
     echo ""
     
     PS3="Select debug option: "
@@ -417,7 +417,7 @@ while true; do
 
     # Detect RetroArch
     if command -v retroarch >/dev/null; then
-        ITEMS+=($i "🎮 RetroArch" "Launch RetroArch in fullscreen mode")
+        ITEMS+=($i "RetroArch" "Launch RetroArch in fullscreen mode")
         ACTIONS+=("retroarch")
         ((i++))
     fi
@@ -425,7 +425,7 @@ while true; do
     # Detect Steam
     STEAM=$(detect_steam || true)
     if [ -n "$STEAM" ]; then
-        ITEMS+=($i "🎯 Steam" "Launch Steam in Big Picture mode")
+        ITEMS+=($i "Steam" "Launch Steam in Big Picture mode")
         ACTIONS+=("steam:$STEAM")
         ((i++))
     fi
@@ -433,7 +433,7 @@ while true; do
     # Detect Desktop Sessions
     local session_count=0
     while IFS='|' read -r name exec; do
-        ITEMS+=($i "🖥️  $name" "Start $name desktop environment")
+        ITEMS+=($i "$name" "Start $name desktop environment")
         ACTIONS+=("session:$exec")
         ((i++))
         ((session_count++))
@@ -441,11 +441,11 @@ while true; do
 
     # System options
     ITEMS+=(
-        $i "📊 System Info" "View detailed system information"
-        $((i+1)) "🔧 Debug Menu" "Debugging tools and logs"
-        $((i+2)) "💻 Shell" "Open command line shell"
-        $((i+3)) "🔄 Reboot" "Restart the system"
-        $((i+4)) "⏻  Shutdown" "Power off the system"
+        $i "System Info" "View detailed system information"
+        $((i+1)) "Debug Menu" "Debugging tools and logs"
+        $((i+2)) "Shell" "Open command line shell"
+        $((i+3)) "Reboot" "Restart the system"
+        $((i+4)) "Shutdown" "Power off the system"
     )
     ACTIONS+=("sysinfo" "debug" "shell" "reboot" "shutdown")
 
@@ -454,7 +454,7 @@ while true; do
     if [ "$DIALOG_TOOL" = "dialog" ]; then
         CHOICE=$(dialog --colors \
             --backtitle "Game Boot Utility v2.0 | $SYSINFO" \
-            --title "\Z2◆ Main Menu ◆\Zn" \
+            --title "\Z2Main Menu\Zn" \
             --ok-label "Select" \
             --menu "\nUse arrow keys to navigate, Enter to select:\n" \
             22 75 14 \
@@ -516,9 +516,9 @@ while true; do
             ;;
         shell)
             clear
-            echo -e "${CYAN}╔════════════════════════════════════════╗${NC}"
-            echo -e "${CYAN}║${NC}    ${GREEN}Entering Shell Environment${NC}      ${CYAN}║${NC}"
-            echo -e "${CYAN}╚════════════════════════════════════════╝${NC}"
+            echo -e "${CYAN}+========================================+${NC}"
+            echo -e "${CYAN}|${NC}    ${GREEN}Entering Shell Environment${NC}      ${CYAN}|${NC}"
+            echo -e "${CYAN}+========================================+${NC}"
             echo -e "${YELLOW}Type 'exit' to return to the menu${NC}\n"
             bash
             ;;
@@ -530,10 +530,10 @@ while true; do
             ;;
         reboot)
             if [ "$DIALOG_TOOL" = "dialog" ]; then
-                dialog --colors --title "\Z1⚠ Confirm Reboot\Zn" \
+                dialog --colors --title "\Z1WARNING: Confirm Reboot\Zn" \
                     --yesno "Are you sure you want to reboot?" 7 50
             else
-                whiptail --title "⚠ Confirm Reboot" \
+                whiptail --title "WARNING: Confirm Reboot" \
                     --yesno "Are you sure you want to reboot?" 7 50
             fi
             if [ $? -eq 0 ]; then
@@ -545,10 +545,10 @@ while true; do
             ;;
         shutdown)
             if [ "$DIALOG_TOOL" = "dialog" ]; then
-                dialog --colors --title "\Z1⚠ Confirm Shutdown\Zn" \
+                dialog --colors --title "\Z1WARNING: Confirm Shutdown\Zn" \
                     --yesno "Are you sure you want to shut down?" 7 50
             else
-                whiptail --title "⚠ Confirm Shutdown" \
+                whiptail --title "WARNING: Confirm Shutdown" \
                     --yesno "Are you sure you want to shut down?" 7 50
             fi
             if [ $? -eq 0 ]; then
