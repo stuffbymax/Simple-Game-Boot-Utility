@@ -187,7 +187,198 @@ detect_steam() {
 get_system_info() {
     local uptime_info=$(uptime -p 2>/dev/null || echo "unknown")
     local hostname=$(hostname 2>/dev/null || echo "unknown")
-    echo "Host: $hostname | Uptime: $uptime_info"
+    
+    # Get memory info
+    local mem_total=$(free -h | awk '/^Mem:/ {print $2}')
+    local mem_used=$(free -h | awk '/^Mem:/ {print $3}')
+    local mem_free=$(free -h | awk '/^Mem:/ {print $4}')
+    
+    # Get disk info for root partition
+    local disk_info=$(df -h / | awk 'NR==2 {print $3"/"$2" ("$5")"}')
+    
+    # Get CPU load
+    local cpu_load=$(uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | tr -d ',')
+    
+    echo "Host: $hostname | Up: $uptime_info | Mem: $mem_used/$mem_total | Disk: $disk_info | Load: $cpu_load"
+}
+
+get_detailed_system_info() {
+    clear
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}                  ${GREEN}System Information${NC}                           ${CYAN}║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    # Hostname and uptime
+    echo -e "${YELLOW}Hostname:${NC} $(hostname)"
+    echo -e "${YELLOW}Uptime:${NC} $(uptime -p 2>/dev/null || echo 'unknown')"
+    echo ""
+    
+    # Memory information
+    echo -e "${GREEN}━━━ Memory Information ━━━${NC}"
+    free -h | awk 'NR==1 {printf "%-10s %10s %10s %10s %10s\n", $1, $2, $3, $4, $7} 
+                   NR==2 {printf "%-10s %10s %10s %10s %10s\n", $1, $2, $3, $4, $7}'
+    local mem_percent=$(free | awk '/^Mem:/ {printf "%.1f", ($3/$2)*100}')
+    echo -e "${CYAN}Memory Usage:${NC} ${mem_percent}%"
+    echo ""
+    
+    # Disk information
+    echo -e "${GREEN}━━━ Disk Information ━━━${NC}"
+    df -h | awk 'NR==1 || /^\/dev\// {printf "%-20s %8s %8s %8s %5s %s\n", $1, $2, $3, $4, $5, $6}'
+    echo ""
+    
+    # CPU information
+    echo -e "${GREEN}━━━ CPU Information ━━━${NC}"
+    if [ -f /proc/cpuinfo ]; then
+        local cpu_model=$(grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)
+        local cpu_cores=$(grep -c "^processor" /proc/cpuinfo)
+        echo -e "${CYAN}CPU Model:${NC} $cpu_model"
+        echo -e "${CYAN}CPU Cores:${NC} $cpu_cores"
+    fi
+    
+    local load_avg=$(uptime | awk -F'load average:' '{print $2}' | xargs)
+    echo -e "${CYAN}Load Average:${NC} $load_avg"
+    
+    # CPU frequency if available
+    if [ -f /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq ]; then
+        local cpu_freq=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq)
+        cpu_freq=$((cpu_freq / 1000))
+        echo -e "${CYAN}CPU Frequency:${NC} ${cpu_freq} MHz"
+    fi
+    echo ""
+    
+    # Temperature if available
+    if command -v sensors >/dev/null 2>&1; then
+        echo -e "${GREEN}━━━ Temperature ━━━${NC}"
+        sensors 2>/dev/null | grep -E "Core|temp" | head -5
+        echo ""
+    fi
+    
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${YELLOW}Press Enter to return to menu...${NC}"
+    read
+}
+
+show_debug_menu() {
+    clear
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}                    ${GREEN}Debug Menu${NC}                                ${CYAN}║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    PS3="Select debug option: "
+    options=(
+        "View System Logs (journalctl)"
+        "View Dmesg Logs"
+        "Check Running Processes"
+        "Network Status"
+        "Check X Server Status"
+        "Test Controller Detection"
+        "View Environment Variables"
+        "Back to Main Menu"
+    )
+    
+    select opt in "${options[@]}"; do
+        case $opt in
+            "View System Logs (journalctl)")
+                clear
+                echo -e "${YELLOW}Last 50 system log entries:${NC}"
+                journalctl -n 50 --no-pager 2>/dev/null || echo "journalctl not available"
+                echo ""
+                echo -e "${YELLOW}Press Enter to continue...${NC}"
+                read
+                ;;
+            "View Dmesg Logs")
+                clear
+                echo -e "${YELLOW}Last 50 kernel messages:${NC}"
+                dmesg | tail -50
+                echo ""
+                echo -e "${YELLOW}Press Enter to continue...${NC}"
+                read
+                ;;
+            "Check Running Processes")
+                clear
+                echo -e "${YELLOW}Top processes by CPU:${NC}"
+                ps aux --sort=-%cpu | head -15
+                echo ""
+                echo -e "${YELLOW}Press Enter to continue...${NC}"
+                read
+                ;;
+            "Network Status")
+                clear
+                echo -e "${YELLOW}Network Interfaces:${NC}"
+                ip -brief addr 2>/dev/null || ifconfig -a
+                echo ""
+                echo -e "${YELLOW}Active Connections:${NC}"
+                ss -tuln 2>/dev/null | head -10 || netstat -tuln | head -10
+                echo ""
+                echo -e "${YELLOW}Press Enter to continue...${NC}"
+                read
+                ;;
+            "Check X Server Status")
+                clear
+                echo -e "${YELLOW}X Server Status:${NC}"
+                if pgrep -x Xorg >/dev/null; then
+                    echo -e "${GREEN}X Server is running${NC}"
+                    ps aux | grep -E "[X]org|[x]init"
+                else
+                    echo -e "${RED}X Server is not running${NC}"
+                fi
+                echo ""
+                echo -e "${YELLOW}Display Variable:${NC} ${DISPLAY:-not set}"
+                echo ""
+                echo -e "${YELLOW}Press Enter to continue...${NC}"
+                read
+                ;;
+            "Test Controller Detection")
+                clear
+                echo -e "${YELLOW}Detecting Controllers:${NC}"
+                echo ""
+                if command -v python3 >/dev/null; then
+                    python3 << 'PYEOF'
+import evdev
+import sys
+
+try:
+    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+    if devices:
+        print("Found devices:")
+        for device in devices:
+            print(f"  - {device.path}: {device.name}")
+            caps = device.capabilities()
+            if evdev.ecodes.EV_KEY in caps:
+                print(f"    (Has button input)")
+    else:
+        print("No input devices found")
+except Exception as e:
+    print(f"Error: {e}")
+PYEOF
+                else
+                    echo "Python3 not available"
+                fi
+                echo ""
+                echo -e "${YELLOW}Input devices in /dev/input:${NC}"
+                ls -l /dev/input/event* 2>/dev/null || echo "No event devices found"
+                echo ""
+                echo -e "${YELLOW}Press Enter to continue...${NC}"
+                read
+                ;;
+            "View Environment Variables")
+                clear
+                echo -e "${YELLOW}Environment Variables:${NC}"
+                env | sort | head -30
+                echo ""
+                echo -e "${YELLOW}Press Enter to continue...${NC}"
+                read
+                ;;
+            "Back to Main Menu")
+                break
+                ;;
+            *)
+                echo "Invalid option"
+                ;;
+        esac
+    done
 }
 
 show_info_box() {
@@ -250,11 +441,13 @@ while true; do
 
     # System options
     ITEMS+=(
-        $i "💻 Shell" "Open command line shell"
-        $((i+1)) "🔄 Reboot" "Restart the system"
-        $((i+2)) "⏻  Shutdown" "Power off the system"
+        $i "📊 System Info" "View detailed system information"
+        $((i+1)) "🔧 Debug Menu" "Debugging tools and logs"
+        $((i+2)) "💻 Shell" "Open command line shell"
+        $((i+3)) "🔄 Reboot" "Restart the system"
+        $((i+4)) "⏻  Shutdown" "Power off the system"
     )
-    ACTIONS+=("shell" "reboot" "shutdown")
+    ACTIONS+=("sysinfo" "debug" "shell" "reboot" "shutdown")
 
     # Display menu with system info
     SYSINFO=$(get_system_info)
@@ -264,7 +457,7 @@ while true; do
             --title "\Z2◆ Main Menu ◆\Zn" \
             --ok-label "Select" \
             --menu "\nUse arrow keys to navigate, Enter to select:\n" \
-            20 70 12 \
+            22 75 14 \
             "${ITEMS[@]}" \
             3>&1 1>&2 2>&3)
     else
@@ -273,7 +466,7 @@ while true; do
             --title "Main Menu" \
             --ok-button "Select" \
             --menu "Use arrow keys to navigate, Enter to select:" \
-            20 70 12 \
+            22 75 14 \
             "${ITEMS[@]}" \
             3>&1 1>&2 2>&3)
     fi
@@ -328,6 +521,12 @@ while true; do
             echo -e "${CYAN}╚════════════════════════════════════════╝${NC}"
             echo -e "${YELLOW}Type 'exit' to return to the menu${NC}\n"
             bash
+            ;;
+        sysinfo)
+            get_detailed_system_info
+            ;;
+        debug)
+            show_debug_menu
             ;;
         reboot)
             if [ "$DIALOG_TOOL" = "dialog" ]; then

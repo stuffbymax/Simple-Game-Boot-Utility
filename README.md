@@ -15,17 +15,41 @@ This repository provides scripts to create an **automatic boot menu** on TTY1, i
   1. RetroArch (fullscreen)
   2. Steam (if installed)
   3. Detected desktop environments (IceWM, XFCE4, TWM, etc.)
-  4. Shell
-  5. Reboot
-  6. Shutdown
+  4. System Update
+  5. **System Information** (NEW) - Detailed system monitoring
+  6. **Debug Menu** (NEW) - Comprehensive debugging tools
+  7. Shell
+  8. Network Configuration
+  9. Reboot
+  10. Shutdown
 
-  **New TUI Features:**
+  **TUI Features:**
   - Color-coded interface with emoji icons
-  - System information display (hostname, uptime)
+  - **Enhanced system information display:**
+    - Real-time RAM monitoring (Total, Used, Free)
+    - Disk usage statistics with percentage
+    - CPU load average
+    - System hostname and uptime
   - Confirmation dialogs for destructive actions (reboot/shutdown)
   - Error handling with informative messages
   - Support for both `dialog` and `whiptail` TUI tools
   - Better visual feedback during operations
+
+  **System Information Menu:**
+  - Comprehensive memory breakdown with usage percentage
+  - All disk partitions with usage statistics
+  - CPU model, core count, and frequency
+  - Temperature monitoring (if sensors available)
+  - Formatted, easy-to-read display
+
+  **Debug Menu:**
+  - View system logs (journalctl)
+  - View kernel messages (dmesg)
+  - Check running processes by CPU usage
+  - Network status and active connections
+  - X Server status checker
+  - Controller detection test
+  - Environment variables viewer
 
 * **Gamepad Support**
   Python script maps PS3, PS4, Xbox, and generic controllers to keyboard keys.
