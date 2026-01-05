@@ -160,10 +160,8 @@ NC='\033[0m' # No Color
 # Determine which dialog tool to use
 if command -v dialog >/dev/null; then
     DIALOG_TOOL="dialog"
-    DIALOG_CMD="dialog --colors --backtitle \"Game Boot Utility v2.0\" --no-cancel"
 elif command -v whiptail >/dev/null; then
     DIALOG_TOOL="whiptail"
-    DIALOG_CMD="whiptail --backtitle \"Game Boot Utility v2.0\" --nocancel"
 else
     echo -e "${RED}Error: No dialog tool found (dialog or whiptail required)${NC}"
     exit 1
@@ -216,8 +214,7 @@ get_detailed_system_info() {
     
     # Memory information
     echo -e "${GREEN}--- Memory Information ---${NC}"
-    free -h | awk 'NR==1 {printf "%-10s %10s %10s %10s %10s\n", $1, $2, $3, $4, $7} 
-                   NR==2 {printf "%-10s %10s %10s %10s %10s\n", $1, $2, $3, $4, $7}'
+    free -h | head -2
     local mem_percent=$(free | awk '/^Mem:/ {printf "%.1f", ($3/$2)*100}')
     echo -e "${CYAN}Memory Usage:${NC} ${mem_percent}%"
     echo ""

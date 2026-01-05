@@ -272,8 +272,7 @@ get_detailed_system_info() {
     
     # Memory information
     echo -e "\${GREEN}--- Memory Information ---\${NC}"
-    free -h | awk 'NR==1 {printf "%-10s %10s %10s %10s %10s\\n", \$1, \$2, \$3, \$4, \$7} 
-                   NR==2 {printf "%-10s %10s %10s %10s %10s\\n", \$1, \$2, \$3, \$4, \$7}'
+    free -h | head -2
     local mem_percent=\$(free | awk '/^Mem:/ {printf "%.1f", (\$3/\$2)*100}')
     echo -e "\${CYAN}Memory Usage:\${NC} \${mem_percent}%"
     echo ""
