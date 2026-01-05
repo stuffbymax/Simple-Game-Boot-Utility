@@ -9,8 +9,8 @@ This repository provides scripts to create an **automatic boot menu** on TTY1, i
 
 ## Features
 
-* **Automatic Boot Menu**
-  Detects available desktop sessions and applications such as RetroArch and Steam, then presents a menu on TTY1:
+* **Enhanced TUI Boot Menu**
+  Modern text-based interface with improved visuals and user experience. Automatically detects available desktop sessions and applications such as RetroArch and Steam, then presents an enhanced menu on TTY1:
 
   1. RetroArch (fullscreen)
   2. Steam (if installed)
@@ -18,6 +18,14 @@ This repository provides scripts to create an **automatic boot menu** on TTY1, i
   4. Shell
   5. Reboot
   6. Shutdown
+
+  **New TUI Features:**
+  - Color-coded interface with emoji icons
+  - System information display (hostname, uptime)
+  - Confirmation dialogs for destructive actions (reboot/shutdown)
+  - Error handling with informative messages
+  - Support for both `dialog` and `whiptail` TUI tools
+  - Better visual feedback during operations
 
 * **Gamepad Support**
   Python script maps PS3, PS4, Xbox, and generic controllers to keyboard keys.

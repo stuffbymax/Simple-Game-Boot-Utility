@@ -217,110 +217,218 @@ EOF
 sudo chmod 777 $PS3_PYTHON
 
 # -------------------------------
-# Step 2: Boot menu script
+# Step 2: Boot menu script - Enhanced TUI
 # -------------------------------
-sudo tee $BOOTMENU > /dev/null << EOF
+sudo tee $BOOTMENU > /dev/null << 'EOF'
 #!/bin/bash
+
+# Colors for terminal output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Determine which dialog tool to use
+if command -v dialog >/dev/null; then
+    DIALOG_TOOL="dialog"
+elif command -v whiptail >/dev/null; then
+    DIALOG_TOOL="whiptail"
+else
+    echo -e "${RED}Error: No dialog tool found (dialog or whiptail required)${NC}"
+    exit 1
+fi
+
+get_system_info() {
+    local uptime_info=$(uptime -p 2>/dev/null || echo "unknown")
+    local hostname=$(hostname 2>/dev/null || echo "unknown")
+    echo "Host: $hostname | Uptime: $uptime_info"
+}
+
+show_info_box() {
+    local title="\$1"
+    local message="\$2"
+    if [ "\$DIALOG_TOOL" = "dialog" ]; then
+        dialog --colors --title "\$title" --infobox "\$message" 7 50
+    else
+        whiptail --title "\$title" --infobox "\$message" 7 50
+    fi
+    sleep 2
+}
+
+show_error_box() {
+    local title="\$1"
+    local message="\$2"
+    if [ "\$DIALOG_TOOL" = "dialog" ]; then
+        dialog --colors --title "\Z1ERROR\Zn" --msgbox "\$message" 10 60
+    else
+        whiptail --title "ERROR: \$title" --msgbox "\$message" 10 60
+    fi
+}
+
 # Start Python PS3 mapper in background
 $PS3_PYTHON &
 PS3_PID=\$!
 
+# Trap to ensure cleanup on exit
+trap 'kill "\$PS3_PID" 2>/dev/null || true' EXIT
+
 while true; do
-CHOICE=\$(dialog --clear --backtitle "Debian Boot Menu" \
---title "Boot Menu" \
---menu "Choose an option:" 20 60 9 \
-1 "Launch RetroArch (fullscreen)" \
-2 "Launch IceWM Desktop" \
-3 "Launch XFCE4 Desktop" \
-4 "Update System (apt upgrade)" \
-5 "Open Shell (TTY)" \
-6 "Network Configuration" \
-7 "Reboot" \
-8 "Shutdown" 3>&1 1>&2 2>&3)
+    SYSINFO=\$(get_system_info)
+    
+    if [ "\$DIALOG_TOOL" = "dialog" ]; then
+        CHOICE=\$(dialog --colors \
+            --backtitle "Game Boot Utility v2.0 | \$SYSINFO" \
+            --title "\Z2◆ Main Menu ◆\Zn" \
+            --ok-label "Select" \
+            --menu "\nUse arrow keys to navigate, Enter to select:\n" 20 70 9 \
+            1 "🎮 RetroArch" "Launch RetroArch in fullscreen mode" \
+            2 "🖥️  IceWM" "Start IceWM desktop environment" \
+            3 "🖥️  XFCE4" "Start XFCE4 desktop environment" \
+            4 "⬆️  Update System" "Run apt update and upgrade" \
+            5 "💻 Shell" "Open command line shell" \
+            6 "🌐 Network Config" "Configure network settings" \
+            7 "🔄 Reboot" "Restart the system" \
+            8 "⏻  Shutdown" "Power off the system" \
+            3>&1 1>&2 2>&3)
+    else
+        CHOICE=\$(whiptail \
+            --backtitle "Game Boot Utility v2.0 | \$SYSINFO" \
+            --title "Main Menu" \
+            --ok-button "Select" \
+            --menu "Use arrow keys to navigate, Enter to select:" 20 70 9 \
+            1 "RetroArch" "Launch RetroArch in fullscreen" \
+            2 "IceWM" "Start IceWM desktop" \
+            3 "XFCE4" "Start XFCE4 desktop" \
+            4 "Update System" "Run apt update and upgrade" \
+            5 "Shell" "Open command line" \
+            6 "Network Config" "Configure network" \
+            7 "Reboot" "Restart system" \
+            8 "Shutdown" "Power off" \
+            3>&1 1>&2 2>&3)
+    fi
 
+    # Handle dialog cancellation
+    exit_code=\$?
+    if [ \$exit_code -ne 0 ]; then
+        continue
+    fi
 
-clear
-
-case \$CHOICE in
-1)
-    kill \$PS3_PID 2>/dev/null || true
-    retroarch -f
-    $PS3_PYTHON &
-    PS3_PID=\$!
-    ;;
-2)
-    kill \$PS3_PID 2>/dev/null || true
-    echo "exec icewm-session" > ~/.xinitrc
-    # Start AntimicroX in IceWM
-    antimicrox --hidden --profile $ANTIMICROX_PROFILE &
-    onboard &
-    startx
-    $PS3_PYTHON &
-    PS3_PID=\$!
-    ;;
-3)
-    kill \$PS3_PID 2>/dev/null || true
-    echo "exec startxfce4" > ~/.xinitrc
-    # Start AntimicroX in XFCE
-    antimicrox --hidden --profile $ANTIMICROX_PROFILE &
-    onboard &
-    startx
-    $PS3_PYTHON &
-    PS3_PID=\$!
-    ;;
-4)
-    # System update with animated '===' progress bar
     clear
-    echo -e  "\e[42m=== Updating system... please wait ===\e[0m"
-    echo "(Full log at /tmp/apt_update.log)"
-    sudo apt update -y && sudo apt upgrade -y &> /tmp/apt_update.log &
-    PID=$!
-    BAR="#"
-    WIDTH=40
-    while kill -0 $PID 2>/dev/null; do
-        if [ ${#BAR} -lt $WIDTH ]; then
-            BAR="$BAR="
-        else
-            BAR=""
+
+    case \$CHOICE in
+    1)
+        show_info_box "Launching" "Starting RetroArch..."
+        kill \$PS3_PID 2>/dev/null || true
+        if ! retroarch -f; then
+            show_error_box "RetroArch Error" "Failed to launch RetroArch.\nPress any key to return to menu."
         fi
-        printf "\r[%s] Updating..." "$BAR"
-        sleep 0.2
-    done
-    wait $PID
-    printf "\r[%s] Update complete!          \n" "$(printf '=%.0s' $(seq 1 $WIDTH))"
-    sleep 2
-    echo "exiting"
-    exit
-    ;;
-5)
-    clear
-    echo -e "\e[42m=== Entering shell ===\e[0m"
-    echo "Type 'exit' to return to the Boot Menu."
-    bash
-    ;;
-6)
-    clear
-    echo "=== Network Configuration ==="
-    echo -e "\e[41mcurrently mapping is only set to up down left right enter back so you have to use keyboard\e[0m"
-    # echo "Use your controller to navigate!"
-    echo -e "\e[42mLaunching nmtui...\e[0m"
-    sleep 1
-    $PS3_PYTHON &
-    PS3_PID=$!
-    sudo nmtui
-    kill $PS3_PID 2>/dev/null || true
-    echo "Network configuration done!"
-    sleep 2
-    ;;
-7)
-    kill $PS3_PID 2>/dev/null || true
-    sudo reboot
-    ;;
-8)
-    kill $PS3_PID 2>/dev/null || true
-    sudo shutdown now
-    ;;
-esac
+        $PS3_PYTHON &
+        PS3_PID=\$!
+        ;;
+    2)
+        show_info_box "Launching" "Starting IceWM desktop..."
+        kill \$PS3_PID 2>/dev/null || true
+        echo "exec icewm-session" > ~/.xinitrc
+        # Start AntimicroX in IceWM
+        antimicrox --hidden --profile $ANTIMICROX_PROFILE 2>/dev/null &
+        onboard 2>/dev/null &
+        if ! startx 2>/dev/null; then
+            show_error_box "IceWM Error" "Failed to start IceWM.\nPress any key to return to menu."
+        fi
+        $PS3_PYTHON &
+        PS3_PID=\$!
+        ;;
+    3)
+        show_info_box "Launching" "Starting XFCE4 desktop..."
+        kill \$PS3_PID 2>/dev/null || true
+        echo "exec startxfce4" > ~/.xinitrc
+        # Start AntimicroX in XFCE
+        antimicrox --hidden --profile $ANTIMICROX_PROFILE 2>/dev/null &
+        onboard 2>/dev/null &
+        if ! startx 2>/dev/null; then
+            show_error_box "XFCE4 Error" "Failed to start XFCE4.\nPress any key to return to menu."
+        fi
+        $PS3_PYTHON &
+        PS3_PID=\$!
+        ;;
+    4)
+        # System update with animated progress bar
+        clear
+        echo -e "\${GREEN}╔════════════════════════════════════════╗\${NC}"
+        echo -e "\${GREEN}║\${NC}    ${YELLOW}Updating System...${NC}             \${GREEN}║\${NC}"
+        echo -e "\${GREEN}╚════════════════════════════════════════╝\${NC}"
+        echo ""
+        echo -e "\${CYAN}Full log at /tmp/apt_update.log\${NC}\n"
+        sudo apt update -y && sudo apt upgrade -y &> /tmp/apt_update.log &
+        PID=\$!
+        BAR="#"
+        WIDTH=40
+        while kill -0 \$PID 2>/dev/null; do
+            if [ \${#BAR} -lt \$WIDTH ]; then
+                BAR="\$BAR="
+            else
+                BAR=""
+            fi
+            printf "\r[\${YELLOW}%s\${NC}] Updating..." "\$BAR"
+            sleep 0.2
+        done
+        wait \$PID
+        printf "\r[\${GREEN}%s\${NC}] Update complete!          \n" "\$(printf '=%.0s' \$(seq 1 \$WIDTH))"
+        sleep 2
+        ;;
+    5)
+        clear
+        echo -e "\${CYAN}╔════════════════════════════════════════╗\${NC}"
+        echo -e "\${CYAN}║\${NC}    \${GREEN}Entering Shell Environment\${NC}      \${CYAN}║\${NC}"
+        echo -e "\${CYAN}╚════════════════════════════════════════╝\${NC}"
+        echo -e "\${YELLOW}Type 'exit' to return to the menu\${NC}\n"
+        bash
+        ;;
+    6)
+        clear
+        echo -e "\${CYAN}╔════════════════════════════════════════╗\${NC}"
+        echo -e "\${CYAN}║\${NC}    \${GREEN}Network Configuration\${NC}            \${CYAN}║\${NC}"
+        echo -e "\${CYAN}╚════════════════════════════════════════╝\${NC}"
+        echo -e "\${YELLOW}Note: Limited keyboard mapping active\${NC}"
+        echo -e "\${YELLOW}You may need a physical keyboard\${NC}\n"
+        sleep 2
+        sudo nmtui
+        echo -e "\n\${GREEN}Network configuration complete!\${NC}"
+        sleep 2
+        ;;
+    7)
+        if [ "\$DIALOG_TOOL" = "dialog" ]; then
+            dialog --colors --title "\Z1⚠ Confirm Reboot\Zn" \
+                --yesno "Are you sure you want to reboot?" 7 50
+        else
+            whiptail --title "⚠ Confirm Reboot" \
+                --yesno "Are you sure you want to reboot?" 7 50
+        fi
+        if [ \$? -eq 0 ]; then
+            clear
+            echo -e "\${YELLOW}Rebooting system...\${NC}"
+            kill \$PS3_PID 2>/dev/null || true
+            sudo reboot
+        fi
+        ;;
+    8)
+        if [ "\$DIALOG_TOOL" = "dialog" ]; then
+            dialog --colors --title "\Z1⚠ Confirm Shutdown\Zn" \
+                --yesno "Are you sure you want to shut down?" 7 50
+        else
+            whiptail --title "⚠ Confirm Shutdown" \
+                --yesno "Are you sure you want to shut down?" 7 50
+        fi
+        if [ \$? -eq 0 ]; then
+            clear
+            echo -e "\${YELLOW}Shutting down system...\${NC}"
+            kill \$PS3_PID 2>/dev/null || true
+            sudo shutdown now
+        fi
+        ;;
+    esac
 done
 
 EOF
