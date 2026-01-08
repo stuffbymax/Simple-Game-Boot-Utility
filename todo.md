@@ -1,6 +1,6 @@
 # to do
 
-1. ICEWM conf ✅
-2. sudo apt install retroarch-assets-xmb ❌
-3. retroarch-assets-xmb-sound  ❌
-4. upload conf files to github ✅
+1. sudo apt install retroarch-assets-xmb ❌
+2. retroarch-assets-xmb-sound  ❌
+3. upload conf files to github ✅
+4. better console system like look  
