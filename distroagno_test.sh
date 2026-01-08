@@ -175,8 +175,8 @@ get_system_info() {
     local cpu=$(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4"%"}')
     local temp=$(sensors | grep "Package id 0" | awk '{print $4}' | sed 's/+//')
     echo "Mem: $mem | Load: $load"
-    echo "cpu usage"
-    echo "cpu temp"
+    echo "cpu usage $cpu"
+    echo "cpu temp $temp"
 }
 
 # Start mapper
