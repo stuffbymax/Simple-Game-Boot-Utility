@@ -204,7 +204,7 @@ while true; do
     ACTIONS+=("shell" "reboot" "shutdown")
 
     SYSINFO=$(get_system_info)
-    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | $SYSINFO" --menu "Select Action" 20 60 10 "${ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 0
+    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | version 0.0.2| $SYSINFO" --menu "Select Action" 20 60 10 "${ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 0
 
     ACTION="${ACTIONS[$((CHOICE-1))]}"
 
