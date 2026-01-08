@@ -22,6 +22,8 @@ echo -e "${CYAN}================================================"
 echo -e "   DISTRO-AGNOSTIC GAMING BOOT INSTALLER"
 echo -e "================================================${NC}"
 echo "Targeting: Arch, Debian, Ubuntu, Fedora"
+echo "this program requires 5MB of RAM"
+echo "the program may not install PKGs for other distros than debian"
 read -r -p "This script modifies system files. Continue? [y/N]: " CONFIRM
 [[ "${CONFIRM,,}" != "y" ]] && exit 1
 
