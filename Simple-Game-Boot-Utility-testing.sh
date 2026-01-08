@@ -29,7 +29,7 @@ PM="$(detect_pm)"
 install_packages() {
     case "$PM" in
         pacman)
-            sudo pacman -Sy --needed --noconfirm \
+            sudo pacman -Syu --needed --noconfirm \
                 retroarch retroarch-assets \
                 xorg-server xorg-xinit xorg-xinput \
                 dialog antimicrox onboard \
