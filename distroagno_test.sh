@@ -170,7 +170,7 @@ detect_sessions() {
 }
 
 get_system_info() {
-    local mem=$(free -h | awk '/^Mem:/ {print $3 "/" $2}')
+    local mem=$(free -h --si | awk '/^Mem:/ {print $3 "/" $2}')
     local load=$(uptime | awk -F'load average:' '{print $2}' | cut -d, -f1)
     echo "Mem: $mem | Load: $load"
 }
