@@ -172,7 +172,11 @@ detect_sessions() {
 get_system_info() {
     local mem=$(free -h --si | awk '/^Mem:/ {print $3 "/" $2}')
     local load=$(uptime | awk -F'load average:' '{print $2}' | cut -d, -f1)
+    local cpu=$(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4"%"}')
+    local temp=$(sensors | grep "Package id 0" | awk '{print $4}' | sed 's/+//')
     echo "Mem: $mem | Load: $load"
+    echo "cpu usage"
+    echo "cpu temp"
 }
 
 # Start mapper
