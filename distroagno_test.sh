@@ -171,12 +171,17 @@ detect_sessions() {
 
 get_system_info() {
     local mem=$(free -h --si | awk '/^Mem:/ {print $3 "/" $2}')
-    local load=$(uptime | awk -F'load average:' '{print $2}' | cut -d, -f1)
+    local load=$(uptime | awk -F'load average:' '{print $2}' | cut -d, -f1 | xargs)
+    
+    # top -bn1 is slow (takes ~1 sec). Consider using /proc/stat for speed.
     local cpu=$(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4"%"}')
-    local temp=$(sensors | grep "Package id 0" | awk '{print $4}' | sed 's/+//')
-    echo "Mem: $mem | Load: $load"
-    echo "cpu usage $cpu"
-    echo "cpu temp $temp"
+    
+    # sensors might fail if not installed; use 2>/dev/null to prevent errors
+    local temp=$(sensors 2>/dev/null | grep "Package id 0" | awk '{print $4}' | sed 's/+//')
+    [ -z "$temp" ] && temp="N/A"
+
+    # EVERYTHING MUST BE ON ONE ECHO LINE
+    echo "Mem: $mem | Load: $load | CPU: $cpu | Temp: $temp"
 }
 
 # Start mapper
