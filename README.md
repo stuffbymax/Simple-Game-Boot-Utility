@@ -88,7 +88,6 @@ Mappings can be modified in `ps3_to_keys.py`.
 
 ## Known Issues
 
-* TWM autostart does not fully support AntimicroX yet.
 * External AntimicroX profiles must be added manually (`bootmenu_gamepad_profile.amgp`).
 
 ---
