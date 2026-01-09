@@ -14,19 +14,16 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-WHITE='\033[1;37m'
 NC='\033[0m'
 
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-echo -e "${CYAN}╔════════════════════════════════════════════════╗"
-echo -e "║   XMB-Style Game Boot System INSTALLER         ║"
-echo -e "╚════════════════════════════════════════════════╝${NC}"
+echo -e "${CYAN}================================================"
+echo -e "   Simple Game Boot INSTALLER"
+echo -e "================================================${NC}"
 echo "Targeting: Arch, Debian, Ubuntu, Fedora"
-echo "This program requires at least 8MB of RAM"
-echo ""
+echo "this program requires at least 8MB of RAM"
+echo "the program may not install PKGs for other distros than debian"
 read -r -p "This script modifies system files. Continue? [y/N]: " CONFIRM
 [[ "${CONFIRM,,}" != "y" ]] && exit 1
 
@@ -84,13 +81,14 @@ if [ -d /etc/modules-load.d ]; then
     echo "uinput" | sudo tee /etc/modules-load.d/uinput.conf >/dev/null
 fi
 
-# Udev rule: Allow 'input' group to use uinput
+# Udev rule: Allow 'input' group to use uinput (Standard distro practice)
 sudo tee /etc/udev/rules.d/99-uinput.rules >/dev/null <<EOF
 KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"
 EOF
 
 # Ensure user is in the correct groups
 sudo usermod -aG input "$USER_NAME" || true
+# Some distros (Debian/Ubuntu) use 'video' for Xorg access
 sudo usermod -aG video "$USER_NAME" || true
 
 # -------------------------------
@@ -105,6 +103,7 @@ def get_device():
     try:
         devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
         for d in devices:
+            # Look for a device with buttons (Gamepads usually have BTN_SOUTH)
             if evdev.ecodes.EV_KEY in d.capabilities():
                 return d
     except: return None
@@ -120,6 +119,8 @@ events = [
 
 try:
     ui = uinput.Device(events)
+    # Map typical Gamepad buttons to Keyboard
+    # 304=A/Cross, 305=B/Circle, 307=X/Square, 308=Y/Triangle
     BTN_MAP = {304: uinput.KEY_ENTER, 305: uinput.KEY_ESC, 307: uinput.KEY_BACKSPACE, 308: uinput.KEY_SPACE}
 
     device.grab()
@@ -141,32 +142,25 @@ EOF
 sudo chmod +x "$PS3_PYTHON"
 
 # -------------------------------
-# 4. XMB-STYLE BOOT MENU
+# 4. ENHANCED BOOT MENU
 # -------------------------------
-echo -e "${YELLOW}Creating XMB-Style Boot Menu...${NC}"
+echo -e "${YELLOW}Creating Boot Menu...${NC}"
 sudo tee "$BOOTMENU" >/dev/null << 'EOF'
 #!/usr/bin/env bash
 
-# XMB-Style Boot Menu with Icons and Categories
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-WHITE='\033[1;37m'
-GRAY='\033[0;90m'
 NC='\033[0m'
 
-MAPPER="/usr/local/bin/ps3_to_keys.py"
+# Determine Dialog tool
+DIALOG_TOOL="dialog"
+command -v dialog >/dev/null || DIALOG_TOOL="whiptail"
 
-# XMB-style icons using Unicode
-ICON_GAME="🎮"
-ICON_DESKTOP="🖥️ "
-ICON_SETTINGS="⚙️ "
-ICON_POWER="⚡"
-ICON_TERMINAL="💻"
-ICON_INFO="ℹ️ "
+# Controller Mapper Path
+MAPPER="/usr/local/bin/ps3_to_keys.py"
 
 detect_sessions() {
     for f in /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop; do
@@ -180,9 +174,16 @@ detect_sessions() {
 get_system_info() {
     local mem=$(free -h --si | awk '/^Mem:/ {print $3 "/" $2}')
     local load=$(uptime | awk -F'load average:' '{print $2}' | cut -d, -f1 | xargs)
-    local cpu=$(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4"%"}' 2>/dev/null || echo "N/A")
-    local temp=$(sensors 2>/dev/null | grep "Package id 0" | awk '{print $4}' | sed 's/+//' || echo "N/A")
-    echo "RAM: $mem | Load: $load | CPU: $cpu | Temp: $temp"
+    
+    # top -bn1 is slow (takes ~1 sec). Consider using /proc/stat for speed.
+    local cpu=$(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4"%"}')
+    
+    # sensors might fail if not installed; use 2>/dev/null to prevent errors
+    local temp=$(sensors 2>/dev/null | grep "Package id 0" | awk '{print $4}' | sed 's/+//')
+    [ -z "$temp" ] && temp="N/A"
+
+    # EVERYTHING MUST BE ON ONE ECHO LINE
+    echo "Mem: $mem | Load: $load | CPU: $cpu | Temp: $temp"
 }
 
 # Start mapper
@@ -191,142 +192,48 @@ MAPPER_PID=$!
 trap 'kill $MAPPER_PID 2>/dev/null' EXIT
 
 while true; do
-    # Build categorized menu items
     ITEMS=()
     ACTIONS=()
-    COLORS=()
     i=1
 
-    # CATEGORY: Games
+    # RetroArch
     if command -v retroarch >/dev/null; then
-        ITEMS+=($i "$ICON_GAME RetroArch")
+        ITEMS+=($i "RetroArch")
         ACTIONS+=("retroarch")
-        COLORS+=("$CYAN")
         ((i++))
     fi
 
-    # CATEGORY: Desktop Sessions
+    # Sessions
     while IFS='|' read -r name exec; do
-        ITEMS+=($i "$ICON_DESKTOP $name")
+        ITEMS+=($i "Desktop: $name")
         ACTIONS+=("session:$exec")
-        COLORS+=("$BLUE")
         ((i++))
     done < <(detect_sessions)
 
-    # CATEGORY: System
-    ITEMS+=($i "$ICON_TERMINAL Terminal")
-    ACTIONS+=("shell")
-    COLORS+=("$GREEN")
-    ((i++))
-
-    ITEMS+=($i "$ICON_INFO System Info")
-    ACTIONS+=("sysinfo")
-    COLORS+=("$YELLOW")
-    ((i++))
-
-    # CATEGORY: Power
-    ITEMS+=($i "$ICON_POWER Reboot")
-    ACTIONS+=("reboot")
-    COLORS+=("$YELLOW")
-    ((i++))
-
-    ITEMS+=($i "$ICON_POWER Shutdown")
-    ACTIONS+=("shutdown")
-    COLORS+=("$RED")
-    ((i++))
-
-    # Build dialog command with color tags
-    DIALOG_ITEMS=()
-    for idx in "${!ITEMS[@]}"; do
-        if [ $((idx % 2)) -eq 0 ]; then
-            DIALOG_ITEMS+=("${ITEMS[$idx]}")
-        else
-            color_idx=$((idx / 2))
-            DIALOG_ITEMS+=("${COLORS[$color_idx]}${ITEMS[$idx]}${NC}")
-        fi
-    done
+    # Basics
+    ITEMS+=($i "Terminal" $((i+1)) "Reboot" $((i+2)) "Shutdown")
+    ACTIONS+=("shell" "reboot" "shutdown")
 
     SYSINFO=$(get_system_info)
-    
-    # Enhanced dialog with colors and custom backtitle
-    CHOICE=$(dialog \
-        --colors \
-        --backtitle "╔═══════════════════════════════════════════════════════════════════════╗\n║ XrossMediaBar Boot System v1.0 | $SYSINFO ║\n╚═══════════════════════════════════════════════════════════════════════╝" \
-        --title "║ Select Category > Item ║" \
-        --menu "\nUse ↑↓ arrows and ENTER to select\nPress ESC to exit\n" \
-        22 75 12 \
-        "${DIALOG_ITEMS[@]}" \
-        3>&1 1>&2 2>&3) || exit 0
+    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | version 0.0.2| $SYSINFO" --menu "Select Action" 20 60 10 "${ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 0
 
     ACTION="${ACTIONS[$((CHOICE-1))]}"
 
     case "$ACTION" in
         retroarch)
             kill $MAPPER_PID 2>/dev/null
-            clear
-            echo -e "${CYAN}╔════════════════════════════════╗${NC}"
-            echo -e "${CYAN}║   Starting RetroArch...        ║${NC}"
-            echo -e "${CYAN}╚════════════════════════════════╝${NC}"
-            sleep 1
-            retroarch -f || {
-                echo -e "${RED}Error starting RetroArch${NC}"
-                read -p "Press ENTER to continue..."
-            }
+            retroarch -f || read -p "Error starting RetroArch"
             $MAPPER & MAPPER_PID=$!
             ;;
         session:*)
             kill $MAPPER_PID 2>/dev/null
-            clear
-            echo -e "${BLUE}╔════════════════════════════════╗${NC}"
-            echo -e "${BLUE}║   Starting Desktop Session...  ║${NC}"
-            echo -e "${BLUE}╚════════════════════════════════╝${NC}"
-            sleep 1
             echo "exec ${ACTION#session:}" > "$HOME/.xinitrc"
-            startx || {
-                echo -e "${RED}Error starting Desktop${NC}"
-                read -p "Press ENTER to continue..."
-            }
+            startx || read -p "Error starting Desktop"
             $MAPPER & MAPPER_PID=$!
             ;;
-        shell)
-            clear
-            echo -e "${GREEN}╔════════════════════════════════╗${NC}"
-            echo -e "${GREEN}║   Terminal Mode                ║${NC}"
-            echo -e "${GREEN}║   Type 'exit' to return        ║${NC}"
-            echo -e "${GREEN}╚════════════════════════════════╝${NC}"
-            bash
-            ;;
-        sysinfo)
-            dialog --colors --title "║ System Information ║" --msgbox "\n\
-${CYAN}System Status:${NC}\n\
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n\
-${GREEN}Hostname:${NC}    $(hostname)\n\
-${GREEN}Kernel:${NC}      $(uname -r)\n\
-${GREEN}Uptime:${NC}      $(uptime -p)\n\n\
-${YELLOW}Resources:${NC}\n\
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\
-$(free -h)\n\n\
-${BLUE}Disk Usage:${NC}\n\
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\
-$(df -h / | tail -n1)\n\n\
-Press OK to return" 25 70
-            ;;
-        reboot)
-            dialog --colors --title "${YELLOW}║ Reboot System ║${NC}" --yesno "\n${YELLOW}Are you sure you want to reboot?${NC}" 8 50
-            if [ $? -eq 0 ]; then
-                clear
-                echo -e "${YELLOW}Rebooting...${NC}"
-                sudo reboot
-            fi
-            ;;
-        shutdown)
-            dialog --colors --title "${RED}║ Shutdown System ║${NC}" --yesno "\n${RED}Are you sure you want to shutdown?${NC}" 8 50
-            if [ $? -eq 0 ]; then
-                clear
-                echo -e "${RED}Shutting down...${NC}"
-                sudo shutdown now
-            fi
-            ;;
+        shell) clear; bash; ;;
+        reboot) sudo reboot ;;
+        shutdown) sudo shutdown now ;;
     esac
 done
 EOF
@@ -349,6 +256,7 @@ fi
 # -------------------------------
 # 6. SHELL TRIGGER
 # -------------------------------
+# Arch/Fedora use .bash_profile, Ubuntu/Debian use .profile
 TARGET_PROFILE="$HOME/.bash_profile"
 [[ ! -f "$TARGET_PROFILE" ]] && TARGET_PROFILE="$HOME/.profile"
 
@@ -358,22 +266,6 @@ if ! grep -q "bootmenu.sh" "$TARGET_PROFILE" 2>/dev/null; then
     echo "$TRIGGER" >> "$TARGET_PROFILE"
 fi
 
-echo ""
-echo -e "${GREEN}╔════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║   Installation Complete!                       ║${NC}"
-echo -e "${GREEN}╚════════════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "${CYAN}What was installed:${NC}"
-echo "  • XMB-Style boot menu with icons and colors"
-echo "  • Controller mapper for gamepad navigation"
-echo "  • Auto-login on TTY1"
-echo "  • RetroArch and desktop session support"
-echo ""
-echo -e "${YELLOW}Next steps:${NC}"
-echo "  1. Your user was added to 'input' and 'video' groups"
-echo "  2. Reboot to activate the XMB interface"
-echo "  3. Use arrow keys or gamepad to navigate"
-echo ""
-echo -e "${MAGENTA}Pro tip:${NC} Press ESC in the menu to exit to console"
-echo ""
-read -p "Press ENTER to finish..."
+echo -e "${GREEN}DONE! Setup complete.${NC}"
+echo "1. Your user was added to the 'input' group for the controller mapper."
+echo "2. Please reboot for all group changes and autologin to take effect."gbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
