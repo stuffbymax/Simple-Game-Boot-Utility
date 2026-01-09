@@ -268,4 +268,4 @@ fi
 
 echo -e "${GREEN}DONE! Setup complete.${NC}"
 echo "1. Your user was added to the 'input' group for the controller mapper."
-echo "2. Please reboot for all group changes and autologin to take effect."gbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+echo "2. Please reboot for all group changes and autologin to take effect."
