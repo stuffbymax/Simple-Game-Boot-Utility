@@ -4,7 +4,7 @@ set -euo pipefail
 USER_NAME="$(whoami)"
 LOG_FILE="$HOME/install_log.txt"
 
-BOOTMENU="/usr/local/bin/bootmenu.c"
+BOOTMENU="/usr/local/bin/bootmenu.sh"
 PS3_PYTHON="/usr/local/bin/ps3_to_keys.py"
 
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -74,7 +74,7 @@ sudo usermod -aG video "$USER_NAME" || true
 # Install scripts
 # -------------------------------
 sudo install -Dm755 ps3_to_keys.py "$PS3_PYTHON"
-sudo install -Dm755 bootmenu.c "$BOOTMENU"
+sudo install -Dm755 bootmenu.sh "$BOOTMENU"
 
 # -------------------------------
 # systemd autologin
@@ -95,7 +95,7 @@ fi
 PROFILE="$HOME/.bash_profile"
 [[ ! -f "$PROFILE" ]] && PROFILE="$HOME/.profile"
 
-grep -q bootmenu.c "$PROFILE" || \
-    echo '[ "$(tty)" = "/dev/tty1" ] && exec /usr/local/bin/bootmenu.c' >> "$PROFILE"
+grep -q bootmenu.sh "$PROFILE" || \
+    echo '[ "$(tty)" = "/dev/tty1" ] && exec /usr/local/bin/bootmenu.sh' >> "$PROFILE"
 
 echo "Done. Reboot."
