@@ -29,45 +29,29 @@ read -r -p "Continue? [y/N]: " CONFIRM
 # -------------------------------
 # 1. INSTALL PACKAGES
 # -------------------------------
-declare -A PKGS
-
-declare -A PKGS
-
-if command -v pacman >/dev/null; then
-    PM="pacman"
-    INSTALL="sudo pacman -Sy --needed --noconfirm"
-    PKGS=(
-        [xorg]="xorg-server xorg-xinit xorg-xinput"
-        [py_evdev]="python-evdev"
-        [py_uinput]="python-uinput"
-        [retro]="retroarch retroarch-assets"
-        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
-    )
-elif command -v apt-get >/dev/null; then
-    PM="apt"
-    INSTALL="sudo apt-get update && sudo apt-get install -y"
-    PKGS=(
-        [xorg]="xinit xserver-xorg-core xserver-xorg-input-all"
-        [py_evdev]="python3-evdev"
-        [py_uinput]="python3-uinput"
-        [retro]="retroarch"
-        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
-    )
-elif command -v dnf >/dev/null; then
-    PM="dnf"
-    INSTALL="sudo dnf install -y"
-    PKGS=(
-        [xorg]="xorg-x11-server-Xorg xorg-x11-xinit"
-        [py_evdev]="python3-evdev"
-        [py_uinput]="python3-uinput"
-        [retro]="retroarch"
-        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
-    )
+if command -v apt-get >/dev/null; then
+    INSTALL="sudo apt-get install -y"
+    sudo apt-get update
+elif command -v pacman >/dev/null; then
+    INSTALL="sudo pacman -S --noconfirm"
+    sudo pacman -Sy
 else
-    echo -e "${RED}Error: Unsupported distribution.${NC}"
+    echo -e "${RED}Unsupported package manager. Install dependencies manually.${NC}"
     exit 1
 fi
-
+PKGS_LIST=(
+    python3
+    python3-pip
+    python3-evdev
+    python3-uinput
+    python3-pygame
+    xinit
+    x11-xserver-utils
+    xterm
+    sudo
+    evtest
+    retroarch
+)
 
 echo -e "${YELLOW}Installing packages...${NC}"
 $INSTALL $PKGS_LIST
