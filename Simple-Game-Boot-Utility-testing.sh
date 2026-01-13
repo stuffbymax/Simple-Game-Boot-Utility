@@ -49,6 +49,7 @@ elif command -v apt-get >/dev/null; then
         [xorg]="xinit xserver-xorg-core xserver-xorg-input-all"
         [py_evdev]="python3-evdev"
         [py_uinput]="python3-uinput"
+        [py_evdev]="python3-evdev"
         [retro]="retroarch"
         [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
     )
@@ -82,13 +83,11 @@ if [ -d /etc/modules-load.d ]; then
 fi
 
 # Udev rule: Allow 'input' group to use uinput (Standard distro practice)
-#sudo tee /etc/udev/rules.d/99-uinput.rules >/dev/null <<EOF
-#KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"
+sudo tee /etc/udev/rules.d/99-uinput.rules >/dev/null <<EOF
+KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"
 EOF
 
-sudo udevadm control --reload-rules || true
-sudo udevadm trigger || true
-sudo chmod 666 /dev/uinput
+
 # Ensure user is in the correct groups
 sudo usermod -aG input "$USER_NAME" || true
 # Some distros (Debian/Ubuntu) use 'video' for Xorg access
