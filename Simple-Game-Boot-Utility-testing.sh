@@ -31,19 +31,43 @@ read -r -p "Continue? [y/N]: " CONFIRM
 # -------------------------------
 declare -A PKGS
 
+declare -A PKGS
+
 if command -v pacman >/dev/null; then
+    PM="pacman"
     INSTALL="sudo pacman -Sy --needed --noconfirm"
-    PKGS_LIST="xorg-server xorg-xinit python-evdev python-uinput python-pygame retroarch ttf-dejavu"
+    PKGS=(
+        [xorg]="xorg-server xorg-xinit xorg-xinput"
+        [py_evdev]="python-evdev"
+        [py_uinput]="python-uinput"
+        [retro]="retroarch retroarch-assets"
+        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
+    )
 elif command -v apt-get >/dev/null; then
+    PM="apt"
     INSTALL="sudo apt-get update && sudo apt-get install -y"
-    PKGS_LIST="xinit xserver-xorg python3-evdev python3-uinput python3-pygame retroarch fonts-dejavu-core"
+    PKGS=(
+        [xorg]="xinit xserver-xorg-core xserver-xorg-input-all"
+        [py_evdev]="python3-evdev"
+        [py_uinput]="python3-uinput"
+        [retro]="retroarch"
+        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
+    )
 elif command -v dnf >/dev/null; then
+    PM="dnf"
     INSTALL="sudo dnf install -y"
-    PKGS_LIST="xorg-x11-server-Xorg xorg-x11-xinit python3-evdev python3-uinput python3-pygame retroarch dejavu-sans-fonts"
+    PKGS=(
+        [xorg]="xorg-x11-server-Xorg xorg-x11-xinit"
+        [py_evdev]="python3-evdev"
+        [py_uinput]="python3-uinput"
+        [retro]="retroarch"
+        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
+    )
 else
-    echo -e "${RED}Unsupported Distro.${NC}"
+    echo -e "${RED}Error: Unsupported distribution.${NC}"
     exit 1
 fi
+
 
 echo -e "${YELLOW}Installing packages...${NC}"
 $INSTALL $PKGS_LIST
