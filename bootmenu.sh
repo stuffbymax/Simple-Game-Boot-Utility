@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
+shopt -s globstar
 
-# --------------------------
+# ----------------------------
 # CONFIG
-# --------------------------
-DIALOG=dialog
-command -v dialog >/dev/null || DIALOG=whiptail
+# ----------------------------
+ESC=$(printf "\033")
+RESET="${ESC}[0m"
+HIGHLIGHT="${ESC}[7m"
+TITLE="🎮 Simple Game Boot 🎮"
 
-MAPPER="/usr/local/bin/ps3_to_keys.py"
-
-# Emojis for XMB feel
+# Emojis
 EMOJI_GAME="🎮"
 EMOJI_DESKTOP="🖥"
 EMOJI_TERM="⌨"
@@ -17,127 +18,129 @@ EMOJI_REBOOT="🔄"
 EMOJI_SHUTDOWN="⏻"
 ARROW="➤"
 
-# Menu dimensions
-HEIGHT=20
-WIDTH=60
-MENU_HEIGHT=10
+# Categories
+CATS=("Games" "Desktops" "System")
+CUR_CAT=0
+CUR_ITEM=0
 
-# --------------------------
-# HELPERS
-# --------------------------
+# Items per category (associative arrays)
+declare -A ITEMS
+declare -A CMDS
 
-detect_sessions() {
-    local f name exec
-    while IFS= read -r f; do
+# ----------------------------
+# FUNCTIONS
+# ----------------------------
+
+detect_desktops() {
+    local idx=0
+    for f in /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop; do
         [ -f "$f" ] || continue
-        name=$(grep '^Name=' "$f" | head -n1 | cut -d= -f2)
-        exec=$(grep '^Exec=' "$f" | head -n1 | cut -d= -f2)
-        [ -n "$name" ] && [ -n "$exec" ] && echo "$name|$exec"
-    done < <(printf "%s\n" /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop)
+        local name=$(grep '^Name=' "$f" | cut -d= -f2 | head -n1)
+        local exec=$(grep '^Exec=' "$f" | cut -d= -f2 | head -n1)
+        [ -n "$name" ] && [ -n "$exec" ] && {
+            ITEMS["Desktops,$idx"]="$EMOJI_DESKTOP $name"
+            CMDS["Desktops,$idx"]="$exec"
+            ((idx++))
+        }
+    done
 }
 
-sysinfo() {
-    mem=$(free -h | awk '/Mem:/ {print $3 "/" $2}')
-    load=$(uptime | awk -F'load average:' '{print $2}' | cut -d, -f1)
-    echo "Mem: $mem | Load: $load"
+add_games() {
+    ITEMS["Games,0"]="$EMOJI_GAME RetroArch"
+    CMDS["Games,0"]="retroarch -f"
 }
 
-# --------------------------
-# CONTROLLER MAPPER
-# --------------------------
+add_system() {
+    ITEMS["System,0"]="$EMOJI_TERM Shell"
+    CMDS["System,0"]="bash"
+    ITEMS["System,1"]="$EMOJI_REBOOT Reboot"
+    CMDS["System,1"]="sudo reboot"
+    ITEMS["System,2"]="$EMOJI_SHUTDOWN Shutdown"
+    CMDS["System,2"]="sudo shutdown now"
+}
 
-if [ -x "$MAPPER" ]; then
-    "$MAPPER" &
-    MPID=$!
-    trap 'kill $MPID 2>/dev/null' EXIT
-fi
+# Clear screen and draw XMB
+draw() {
+    clear
+    echo -e "$TITLE\n"
 
-# --------------------------
-# MAIN LOOP
-# --------------------------
+    # Print categories (horizontal)
+    for i in "${!CATS[@]}"; do
+        if [ "$i" -eq "$CUR_CAT" ]; then
+            printf "${HIGHLIGHT} ${CATS[i]} ${RESET}   "
+        else
+            printf " ${CATS[i]}   "
+        fi
+    done
+    echo -e "\n"
 
-while true; do
-    ITEMS=()
-    ACTIONS=()
-    i=1
+    # Print items vertically
+    local cat="${CATS[CUR_CAT]}"
+    local idx=0
+    while [ -n "${ITEMS["$cat,$idx"]+x}" ]; do
+        if [ "$idx" -eq "$CUR_ITEM" ]; then
+            echo -e "${HIGHLIGHT} ${ITEMS["$cat,$idx"]} ${RESET}"
+        else
+            echo " ${ITEMS["$cat,$idx"]}"
+        fi
+        ((idx++))
+    done
+}
 
-    # Horizontal Categories: Games | Desktop | System
-    # We'll fake XMB by spacing names with emojis
-    CATEGORY_LINE=""
-
-    # ---- Games ----
-    if command -v retroarch >/dev/null; then
-        CATEGORY_LINE+="$EMOJI_GAME  RetroArch    "
-        ITEMS+=("$i" "$EMOJI_GAME  RetroArch")
-        ACTIONS+=("retro")
-        ((i++))
+# Capture arrow keys
+read_input() {
+    local key
+    IFS= read -rsn1 key 2>/dev/null
+    if [[ $key == $'\x1b' ]]; then
+        IFS= read -rsn2 -t 0.1 key
+        case "$key" in
+            "[A") return 1 ;; # up
+            "[B") return 2 ;; # down
+            "[C") return 3 ;; # right
+            "[D") return 4 ;; # left
+        esac
+    elif [[ $key == "" ]]; then
+        return 5 # enter
     fi
+    return 0
+}
 
-    # ---- Desktop Sessions ----
-    while IFS='|' read -r name exec; do
-        CATEGORY_LINE+="$EMOJI_DESKTOP  $name    "
-        ITEMS+=("$i" "$EMOJI_DESKTOP  $name")
-        ACTIONS+=("session:$exec")
-        ((i++))
-    done < <(detect_sessions)
+# ----------------------------
+# INIT
+# ----------------------------
+add_games
+detect_desktops
+add_system
 
-    # ---- System ----
-    CATEGORY_LINE+="$EMOJI_TERM  Shell    $EMOJI_REBOOT  Reboot    $EMOJI_SHUTDOWN  Shutdown"
-    ITEMS+=("$i" "$EMOJI_TERM  Shell")
-    ACTIONS+=("shell")
-    ((i++))
-    ITEMS+=("$i" "$EMOJI_REBOOT  Reboot")
-    ACTIONS+=("reboot")
-    ((i++))
-    ITEMS+=("$i" "$EMOJI_SHUTDOWN  Shutdown")
-    ACTIONS+=("shutdown")
-    ((i++))
-
-    # --------------------------
-    # SHOW MENU
-    # --------------------------
-    INFO=$(sysinfo)
-
-    CHOICE=$($DIALOG \
-        --clear \
-        --backtitle "$CATEGORY_LINE | $INFO" \
-        --title " XMB Boot Menu " \
-        --menu "$ARROW  Select" \
-        "$HEIGHT" "$WIDTH" "$MENU_HEIGHT" \
-        "${ITEMS[@]}" \
-        3>&1 1>&2 2>&3
-    ) || exit 0
-
-    # --------------------------
-    # EXECUTE SELECTION
-    # --------------------------
-    ACTION="${ACTIONS[$((CHOICE-1))]}"
-
-    case "$ACTION" in
-        retro)
-            kill $MPID 2>/dev/null || true
-            retroarch -f || read -rp "RetroArch exited. Press Enter."
+# ----------------------------
+# MAIN LOOP
+# ----------------------------
+while true; do
+    draw
+    read_input
+    case $? in
+        1) # up
+            ((CUR_ITEM--))
+            [ "$CUR_ITEM" -lt 0 ] && CUR_ITEM=$(( $(printf "%s\n" "${!ITEMS[@]}" | grep "^${CATS[CUR_CAT]}" | wc -l)-1 ))
             ;;
-        session:*)
-            kill $MPID 2>/dev/null || true
-            echo "exec ${ACTION#session:}" > "$HOME/.xinitrc"
-            startx || read -rp "Session failed. Press Enter."
+        2) # down
+            ((CUR_ITEM++))
+            local max=$(( $(printf "%s\n" "${!ITEMS[@]}" | grep "^${CATS[CUR_CAT]}" | wc -l)-1 ))
+            [ "$CUR_ITEM" -gt "$max" ] && CUR_ITEM=0
             ;;
-        shell)
-            clear
-            bash
+        3) # right
+            ((CUR_CAT++))
+            [ "$CUR_CAT" -ge "${#CATS[@]}" ] && CUR_CAT=0
+            CUR_ITEM=0
             ;;
-        reboot)
-            sudo reboot
+        4) # left
+            ((CUR_CAT--))
+            [ "$CUR_CAT" -lt 0 ] && CUR_CAT=$((${#CATS[@]}-1))
+            CUR_ITEM=0
             ;;
-        shutdown)
-            sudo shutdown now
+        5) # enter
+            cmd="${CMDS[${CATS[CUR_CAT]},${CUR_ITEM}]}"
+            [ -n "$cmd" ] && eval "$cmd"
             ;;
     esac
-
-    # Restart mapper after returning
-    if [ -x "$MAPPER" ]; then
-        "$MAPPER" &
-        MPID=$!
-    fi
 done
