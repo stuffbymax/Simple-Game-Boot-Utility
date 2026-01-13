@@ -148,94 +148,163 @@ echo -e "${YELLOW}Creating Boot Menu...${NC}"
 sudo tee "$BOOTMENU" >/dev/null << 'EOF'
 #!/usr/bin/env bash
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Determine Dialog tool
-DIALOG_TOOL="dialog"
-command -v dialog >/dev/null || DIALOG_TOOL="whiptail"
+# ----------------------------
+# CONFIG
+# ----------------------------
+ESC=$(printf "\033")
+RESET="${ESC}[0m"
+BOLD="${ESC}[1m"
 
-# Controller Mapper Path
+CATEGORY_COLOR="${ESC}[1;34m"   # Blue categories
+ITEM_COLOR="${ESC}[0;37m"       # Gray items
+SELECTED_COLOR="${ESC}[1;33m"   # Yellow selected
+TITLE="🎮 Simple Game Boot 🎮"
+ARROW="➤"
+
+CATS=("Games" "Desktops" "System")
+CUR_CAT=0
+CUR_ITEM=0
+
+declare -A ITEMS
+declare -A CMDS
+
 MAPPER="/usr/local/bin/ps3_to_keys.py"
 
-detect_sessions() {
+# ----------------------------
+# INITIALIZE ITEMS
+# ----------------------------
+add_games() {
+    command -v retroarch >/dev/null && {
+        ITEMS["Games,0"]="🎮 RetroArch"
+        CMDS["Games,0"]="retroarch -f"
+    }
+}
+
+detect_desktops() {
+    local idx=0 f name exec
     for f in /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop; do
         [ -f "$f" ] || continue
         name=$(grep '^Name=' "$f" | head -n1 | cut -d= -f2)
         exec=$(grep '^Exec=' "$f" | head -n1 | cut -d= -f2)
-        [[ -n "$name" && -n "$exec" ]] && echo "$name|$exec"
+        [ -n "$name" ] && [ -n "$exec" ] && {
+            ITEMS["Desktops,$idx"]="🖥 $name"
+            CMDS["Desktops,$idx"]="$exec"
+            ((idx++))
+        }
     done
 }
 
-get_system_info() {
-    local mem=$(free -h --si | awk '/^Mem:/ {print $3 "/" $2}')
-    local load=$(uptime | awk -F'load average:' '{print $2}' | cut -d, -f1 | xargs)
-    
-    # top -bn1 is slow (takes ~1 sec). Consider using /proc/stat for speed.
-    local cpu=$(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4"%"}')
-    
-    # sensors might fail if not installed; use 2>/dev/null to prevent errors
-    local temp=$(sensors 2>/dev/null | grep "Package id 0" | awk '{print $4}' | sed 's/+//')
-    [ -z "$temp" ] && temp="N/A"
-
-    # EVERYTHING MUST BE ON ONE ECHO LINE
-    echo "Mem: $mem | Load: $load | CPU: $cpu | Temp: $temp"
+add_system() {
+    ITEMS["System,0"]="⌨ Shell"
+    CMDS["System,0"]="bash"
+    ITEMS["System,1"]="🔄 Reboot"
+    CMDS["System,1"]="sudo reboot"
+    ITEMS["System,2"]="⏻ Shutdown"
+    CMDS["System,2"]="sudo shutdown now"
 }
 
-# Start mapper
-$MAPPER &
-MAPPER_PID=$!
-trap 'kill $MAPPER_PID 2>/dev/null' EXIT
+# ----------------------------
+# DRAW XMB
+# ----------------------------
+draw() {
+    clear
+    echo -e "$BOLD$TITLE$RESET\n"
 
-while true; do
-    ITEMS=()
-    ACTIONS=()
-    i=1
+    # Categories (horizontal)
+    for i in "${!CATS[@]}"; do
+        if [ "$i" -eq "$CUR_CAT" ]; then
+            printf "${SELECTED_COLOR}${BOLD} ${CATS[i]} ${RESET}   "
+        else
+            printf "${CATEGORY_COLOR} ${CATS[i]} ${RESET}   "
+        fi
+    done
+    echo -e "\n"
 
-    # RetroArch
-    if command -v retroarch >/dev/null; then
-        ITEMS+=($i "RetroArch")
-        ACTIONS+=("retroarch")
-        ((i++))
+    # Items (vertical)
+    local cat="${CATS[CUR_CAT]}"
+    local idx=0
+    while [ -n "${ITEMS["$cat,$idx"]+x}" ]; do
+        if [ "$idx" -eq "$CUR_ITEM" ]; then
+            echo -e "${SELECTED_COLOR}${BOLD}${ARROW}  ${ITEMS["$cat,$idx"]}${RESET}"
+        else
+            echo -e "   ${ITEM_COLOR}${ITEMS["$cat,$idx"]}${RESET}"
+        fi
+        ((idx++))
+    done
+}
+
+# ----------------------------
+# READ ARROWS
+# ----------------------------
+read_input() {
+    local key
+    IFS= read -rsn1 key 2>/dev/null
+    if [[ $key == $'\x1b' ]]; then
+        IFS= read -rsn2 -t 0.1 key
+        case "$key" in
+            "[A") return 1 ;; # up
+            "[B") return 2 ;; # down
+            "[C") return 3 ;; # right
+            "[D") return 4 ;; # left
+        esac
+    elif [[ $key == "" ]]; then
+        return 5 # enter
     fi
+    return 0
+}
 
-    # Sessions
-    while IFS='|' read -r name exec; do
-        ITEMS+=($i "Desktop: $name")
-        ACTIONS+=("session:$exec")
-        ((i++))
-    done < <(detect_sessions)
+# ----------------------------
+# START CONTROLLER MAPPER
+# ----------------------------
+if [ -x "$MAPPER" ]; then
+    "$MAPPER" &
+    MPID=$!
+    trap 'kill $MPID 2>/dev/null' EXIT
+fi
 
-    # Basics
-    ITEMS+=($i "Terminal" $((i+1)) "Reboot" $((i+2)) "Shutdown")
-    ACTIONS+=("shell" "reboot" "shutdown")
+# ----------------------------
+# INIT ITEMS
+# ----------------------------
+add_games
+detect_desktops
+add_system
 
-    SYSINFO=$(get_system_info)
-    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | version 0.0.2| $SYSINFO" --menu "Select Action" 20 60 10 "${ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 0
-
-    ACTION="${ACTIONS[$((CHOICE-1))]}"
-
-    case "$ACTION" in
-        retroarch)
-            kill $MAPPER_PID 2>/dev/null
-            retroarch -f || read -p "Error starting RetroArch"
-            $MAPPER & MAPPER_PID=$!
+# ----------------------------
+# MAIN LOOP
+# ----------------------------
+while true; do
+    draw
+    read_input
+    case $? in
+        1) # up
+            ((CUR_ITEM--))
+            [ "$CUR_ITEM" -lt 0 ] && CUR_ITEM=$(( $(printf "%s\n" "${!ITEMS[@]}" | grep "^${CATS[CUR_CAT]}" | wc -l)-1 ))
             ;;
-        session:*)
-            kill $MAPPER_PID 2>/dev/null
-            echo "exec ${ACTION#session:}" > "$HOME/.xinitrc"
-            startx || read -p "Error starting Desktop"
-            $MAPPER & MAPPER_PID=$!
+        2) # down
+            ((CUR_ITEM++))
+            local max=$(( $(printf "%s\n" "${!ITEMS[@]}" | grep "^${CATS[CUR_CAT]}" | wc -l)-1 ))
+            [ "$CUR_ITEM" -gt "$max" ] && CUR_ITEM=0
             ;;
-        shell) clear; bash; ;;
-        reboot) sudo reboot ;;
-        shutdown) sudo shutdown now ;;
+        3) # right
+            ((CUR_CAT++))
+            [ "$CUR_CAT" -ge "${#CATS[@]}" ] && CUR_CAT=$((${#CATS[@]}-1))
+            CUR_ITEM=0
+            ;;
+        4) # left
+            ((CUR_CAT--))
+            [ "$CUR_CAT" -lt 0 ] && CUR_CAT=0
+            CUR_ITEM=0
+            ;;
+        5) # enter
+            cmd="${CMDS[${CATS[CUR_CAT]},${CUR_ITEM}]}"
+            [ -n "$cmd" ] && eval "$cmd"
+            ;;
     esac
 done
+
 EOF
 sudo chmod +x "$BOOTMENU"
 
