@@ -277,4 +277,8 @@ echo "3. remove login manager
     - For GDM (GNOME): sudo systemctl disable gdm
     - For SDDM (KDE): sudo systemctl disable sddm
     - For LightDM: sudo systemctl disable lightdm"
-echo "4. On reboot, you should be auto-logged into TTY1 where the Boot Menu will start."
+echo "Reboot now? [y/N]: "
+read -r REBOOT_CONFIRM 
+if [[ "${REBOOT_CONFIRM,,}" == "y" ]]; then
+    sudo reboot
+fi
