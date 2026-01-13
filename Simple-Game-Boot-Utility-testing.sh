@@ -2,14 +2,15 @@
 set -euo pipefail
 
 # -------------------------------
-# CONFIGURATION & PATHS
+# CONFIGURATION
 # -------------------------------
 USER_NAME="$(whoami)"
-BOOTMENU="/usr/local/bin/bootmenu.sh"
-PS3_PYTHON="/usr/local/bin/ps3_to_keys.py"
+INSTALL_DIR="/usr/local/bin/xmb_boot"
+MENU_SCRIPT="$INSTALL_DIR/menu.py"
+PS3_MAPPER="$INSTALL_DIR/ps3_mapper.py"
 LOG_FILE="$HOME/install_log.txt"
 
-# Colors for terminal
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -19,300 +20,296 @@ NC='\033[0m'
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo -e "${CYAN}================================================"
-echo -e "   Simple Game Boot INSTALLER"
+echo -e "   PS3 XMB STYLE BOOT INSTALLER"
 echo -e "================================================${NC}"
-echo "Targeting: Arch, Debian, Ubuntu, Fedora"
-echo "this program requires at least 8MB of RAM"
-echo "the program may not install PKGs for other distros than debian"
-read -r -p "This script modifies system files. Continue? [y/N]: " CONFIRM
+echo "This will install Python/Pygame and configure a graphical menu."
+read -r -p "Continue? [y/N]: " CONFIRM
 [[ "${CONFIRM,,}" != "y" ]] && exit 1
 
 # -------------------------------
-# 1. DETECT PACKAGE MANAGER & MAP NAMES
+# 1. INSTALL PACKAGES
 # -------------------------------
 declare -A PKGS
 
 if command -v pacman >/dev/null; then
-    PM="pacman"
     INSTALL="sudo pacman -Sy --needed --noconfirm"
-    PKGS=(
-        [xorg]="xorg-server xorg-xinit xorg-xinput"
-        [py_evdev]="python-evdev"
-        [py_uinput]="python-uinput"
-        [retro]="retroarch retroarch-assets"
-        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
-    )
+    PKGS_LIST="xorg-server xorg-xinit python-evdev python-uinput python-pygame retroarch ttf-dejavu"
 elif command -v apt-get >/dev/null; then
-    PM="apt"
     INSTALL="sudo apt-get update && sudo apt-get install -y"
-    PKGS=(
-        [xorg]="xinit xserver-xorg-core xserver-xorg-input-all"
-        [py_evdev]="python3-evdev"
-        [py_uinput]="python3-uinput"
-        [retro]="retroarch"
-        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
-    )
+    PKGS_LIST="xinit xserver-xorg python3-evdev python3-uinput python3-pygame retroarch fonts-dejavu-core"
 elif command -v dnf >/dev/null; then
-    PM="dnf"
     INSTALL="sudo dnf install -y"
-    PKGS=(
-        [xorg]="xorg-x11-server-Xorg xorg-x11-xinit"
-        [py_evdev]="python3-evdev"
-        [py_uinput]="python3-uinput"
-        [retro]="retroarch"
-        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
-    )
+    PKGS_LIST="xorg-x11-server-Xorg xorg-x11-xinit python3-evdev python3-uinput python3-pygame retroarch dejavu-sans-fonts"
 else
-    echo -e "${RED}Error: Unsupported distribution.${NC}"
+    echo -e "${RED}Unsupported Distro.${NC}"
     exit 1
 fi
 
-echo -e "${YELLOW}Detected $PM. Installing packages...${NC}"
-$INSTALL ${PKGS[xorg]} ${PKGS[py_evdev]} ${PKGS[py_uinput]} ${PKGS[retro]} ${PKGS[utils]} || echo "Some packages failed, continuing..."
+echo -e "${YELLOW}Installing packages...${NC}"
+$INSTALL $PKGS_LIST
 
 # -------------------------------
-# 2. UINPUT & PERMISSIONS
+# 2. SETUP DIRECTORIES & PERMISSIONS
 # -------------------------------
-echo -e "${YELLOW}Configuring uinput permissions...${NC}"
+echo -e "${YELLOW}Setting up directories...${NC}"
+sudo mkdir -p "$INSTALL_DIR/assets"
+sudo chown -R "$USER_NAME:$USER_NAME" "$INSTALL_DIR"
+
+# Uinput permissions
 sudo modprobe uinput || true
-
-# Persistence for module loading
-if [ -d /etc/modules-load.d ]; then
-    echo "uinput" | sudo tee /etc/modules-load.d/uinput.conf >/dev/null
-fi
-
-# Udev rule: Allow 'input' group to use uinput (Standard distro practice)
+echo "uinput" | sudo tee /etc/modules-load.d/uinput.conf >/dev/null
 sudo tee /etc/udev/rules.d/99-uinput.rules >/dev/null <<EOF
 KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"
 EOF
-
-# Ensure user is in the correct groups
-sudo usermod -aG input "$USER_NAME" || true
-# Some distros (Debian/Ubuntu) use 'video' for Xorg access
-sudo usermod -aG video "$USER_NAME" || true
+sudo usermod -aG input "$USER_NAME"
+sudo usermod -aG video "$USER_NAME"
 
 # -------------------------------
 # 3. CONTROLLER MAPPER (Python)
 # -------------------------------
-echo -e "${YELLOW}Creating Controller Mapper...${NC}"
-sudo tee "$PS3_PYTHON" >/dev/null << 'EOF'
+# We map controller inputs to Keyboard arrow keys so Pygame can read them easily
+cat << 'EOF' > "$PS3_MAPPER"
 #!/usr/bin/env python3
-import evdev, uinput, sys, time
+import evdev, uinput, sys
+from evdev import ecodes
 
-def get_device():
-    try:
-        devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
-        for d in devices:
-            # Look for a device with buttons (Gamepads usually have BTN_SOUTH)
-            if evdev.ecodes.EV_KEY in d.capabilities():
-                return d
-    except: return None
+def get_gamepad():
+    for path in evdev.list_devices():
+        d = evdev.InputDevice(path)
+        if ecodes.EV_KEY in d.capabilities() and ecodes.BTN_SOUTH in d.capabilities().get(ecodes.EV_KEY, []):
+            return d
     return None
 
-device = get_device()
-if not device: sys.exit(0)
-
-events = [
-    uinput.KEY_ENTER, uinput.KEY_ESC, uinput.KEY_BACKSPACE, uinput.KEY_SPACE,
-    uinput.KEY_UP, uinput.KEY_DOWN, uinput.KEY_LEFT, uinput.KEY_RIGHT
-]
-
 try:
-    ui = uinput.Device(events)
-    # Map typical Gamepad buttons to Keyboard
-    # 304=A/Cross, 305=B/Circle, 307=X/Square, 308=Y/Triangle
-    BTN_MAP = {304: uinput.KEY_ENTER, 305: uinput.KEY_ESC, 307: uinput.KEY_BACKSPACE, 308: uinput.KEY_SPACE}
-
+    device = get_gamepad()
+    if not device: sys.exit(0)
+    
+    ui = uinput.Device([uinput.KEY_UP, uinput.KEY_DOWN, uinput.KEY_LEFT, uinput.KEY_RIGHT, uinput.KEY_ENTER, uinput.KEY_ESC])
+    
+    # Simple mapping: D-Pad / Analog -> Arrow Keys, Cross -> Enter, Circle -> Esc
     device.grab()
     for e in device.read_loop():
-        if e.type == evdev.ecodes.EV_KEY and e.code in BTN_MAP:
-            ui.emit(BTN_MAP[e.code], e.value)
-        elif e.type == evdev.ecodes.EV_ABS:
-            if e.code == evdev.ecodes.ABS_HAT0Y:
-                key = uinput.KEY_UP if e.value == -1 else uinput.KEY_DOWN
-                if e.value != 0: 
-                    ui.emit(key, 1); ui.emit(key, 0)
-            elif e.code == evdev.ecodes.ABS_HAT0X:
-                key = uinput.KEY_LEFT if e.value == -1 else uinput.KEY_RIGHT
-                if e.value != 0:
-                    ui.emit(key, 1); ui.emit(key, 0)
+        if e.type == ecodes.EV_KEY:
+            if e.code == 304: ui.emit(uinput.KEY_ENTER, e.value) # Cross/A
+            elif e.code == 305: ui.emit(uinput.KEY_ESC, e.value)   # Circle/B
+        elif e.type == ecodes.EV_ABS:
+            if e.code == ecodes.ABS_HAT0Y:
+                k = uinput.KEY_UP if e.value == -1 else uinput.KEY_DOWN
+                if e.value != 0: ui.emit(k, 1); ui.emit(k, 0)
+            elif e.code == ecodes.ABS_HAT0X:
+                k = uinput.KEY_LEFT if e.value == -1 else uinput.KEY_RIGHT
+                if e.value != 0: ui.emit(k, 1); ui.emit(k, 0)
 except:
     sys.exit(0)
 EOF
-sudo chmod +x "$PS3_PYTHON"
+chmod +x "$PS3_MAPPER"
 
 # -------------------------------
-# 4. ENHANCED BOOT MENU
+# 4. PYTHON XMB MENU (Pygame)
 # -------------------------------
-echo -e "${YELLOW}Creating Boot Menu...${NC}"
-sudo tee "$BOOTMENU" >/dev/null << 'EOF'
-#!/usr/bin/env bash
+cat << 'EOF' > "$MENU_SCRIPT"
+#!/usr/bin/env python3
+import pygame
+import os
+import sys
+import subprocess
+import json
+import time
 
-#!/usr/bin/env bash
-set -euo pipefail
+# --- CONFIGURATION ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
-# ----------------------------
-# CONFIG
-# ----------------------------
-ESC=$(printf "\033")
-RESET="${ESC}[0m"
-BOLD="${ESC}[1m"
+DEFAULT_CONFIG = {
+    "bg_color": [20, 20, 20],
+    "highlight_color": [255, 255, 255],
+    "text_color": [150, 150, 150],
+    "font_size": 30,
+    "category_y": 100,
+    "item_start_y": 200,
+    "animation_speed": 10
+}
 
-CATEGORY_COLOR="${ESC}[1;34m"   # Blue categories
-ITEM_COLOR="${ESC}[0;37m"       # Gray items
-SELECTED_COLOR="${ESC}[1;33m"   # Yellow selected
-TITLE="🎮 Simple Game Boot 🎮"
-ARROW="➤"
+if not os.path.exists(CONFIG_FILE):
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(DEFAULT_CONFIG, f, indent=4)
 
-CATS=("Games" "Desktops" "System")
-CUR_CAT=0
-CUR_ITEM=0
+with open(CONFIG_FILE, 'r') as f:
+    CFG = json.load(f)
 
-declare -A ITEMS
-declare -A CMDS
-
-MAPPER="/usr/local/bin/ps3_to_keys.py"
-
-# ----------------------------
-# INITIALIZE ITEMS
-# ----------------------------
-add_games() {
-    command -v retroarch >/dev/null && {
-        ITEMS["Games,0"]="🎮 RetroArch"
-        CMDS["Games,0"]="retroarch -f"
+# --- DATA STRUCTURE ---
+# Define your menu structure here
+MENU = [
+    {
+        "category": "System",
+        "icon": "icon_settings.png",
+        "items": [
+            {"label": "Reboot", "cmd": "sudo reboot"},
+            {"label": "Shutdown", "cmd": "sudo shutdown now"},
+            {"label": "Exit to Shell", "cmd": "EXIT"}
+        ]
+    },
+    {
+        "category": "Games",
+        "icon": "icon_games.png",
+        "items": [
+            {"label": "RetroArch", "cmd": "retroarch -f"},
+            {"label": "Terminal", "cmd": "xterm"} 
+        ]
     }
-}
+]
 
-detect_desktops() {
-    local idx=0 f name exec
-    for f in /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop; do
-        [ -f "$f" ] || continue
-        name=$(grep '^Name=' "$f" | head -n1 | cut -d= -f2)
-        exec=$(grep '^Exec=' "$f" | head -n1 | cut -d= -f2)
-        [ -n "$name" ] && [ -n "$exec" ] && {
-            ITEMS["Desktops,$idx"]="🖥 $name"
-            CMDS["Desktops,$idx"]="$exec"
-            ((idx++))
-        }
-    done
-}
+# --- ENGINE ---
+pygame.init()
+info = pygame.display.Info()
+WIDTH, HEIGHT = info.current_w, info.current_h
+screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.NOFRAME)
+pygame.mouse.set_visible(False)
+clock = pygame.time.Clock()
 
-add_system() {
-    ITEMS["System,0"]="⌨ Shell"
-    CMDS["System,0"]="bash"
-    ITEMS["System,1"]="🔄 Reboot"
-    CMDS["System,1"]="sudo reboot"
-    ITEMS["System,2"]="⏻ Shutdown"
-    CMDS["System,2"]="sudo shutdown now"
-}
+# Fonts
+font = pygame.font.SysFont("dejavusans", CFG["font_size"])
+big_font = pygame.font.SysFont("dejavusans", int(CFG["font_size"] * 1.5))
 
-# ----------------------------
-# DRAW XMB
-# ----------------------------
-draw() {
-    clear
-    echo -e "$BOLD$TITLE$RESET\n"
+# Load Background
+bg_img = None
+bg_path = os.path.join(ASSETS_DIR, "background.png")
+if os.path.exists(bg_path):
+    bg_img = pygame.image.load(bg_path)
+    bg_img = pygame.transform.scale(bg_img, (WIDTH, HEIGHT))
 
-    # Categories (horizontal)
-    for i in "${!CATS[@]}"; do
-        if [ "$i" -eq "$CUR_CAT" ]; then
-            printf "${SELECTED_COLOR}${BOLD} ${CATS[i]} ${RESET}   "
-        else
-            printf "${CATEGORY_COLOR} ${CATS[i]} ${RESET}   "
-        fi
-    done
-    echo -e "\n"
+# State
+col_idx = 1 # Start at Games
+row_idx = 0
+target_x = 0
+current_x = 0
 
-    # Items (vertical)
-    local cat="${CATS[CUR_CAT]}"
-    local idx=0
-    while [ -n "${ITEMS["$cat,$idx"]+x}" ]; do
-        if [ "$idx" -eq "$CUR_ITEM" ]; then
-            echo -e "${SELECTED_COLOR}${BOLD}${ARROW}  ${ITEMS["$cat,$idx"]}${RESET}"
-        else
-            echo -e "   ${ITEM_COLOR}${ITEMS["$cat,$idx"]}${RESET}"
-        fi
-        ((idx++))
-    done
-}
+def draw_text(surface, text, x, y, color, center=False, is_bold=False):
+    f = big_font if is_bold else font
+    render = f.render(text, True, color)
+    rect = render.get_rect()
+    if center:
+        rect.center = (x, y)
+    else:
+        rect.topleft = (x, y)
+    surface.blit(render, rect)
 
-# ----------------------------
-# READ ARROWS
-# ----------------------------
-read_input() {
-    local key
-    IFS= read -rsn1 key 2>/dev/null
-    if [[ $key == $'\x1b' ]]; then
-        IFS= read -rsn2 -t 0.1 key
-        case "$key" in
-            "[A") return 1 ;; # up
-            "[B") return 2 ;; # down
-            "[C") return 3 ;; # right
-            "[D") return 4 ;; # left
-        esac
-    elif [[ $key == "" ]]; then
-        return 5 # enter
-    fi
-    return 0
-}
+running = True
+while running:
+    screen.fill(CFG["bg_color"])
+    if bg_img: screen.blit(bg_img, (0, 0))
 
-# ----------------------------
-# START CONTROLLER MAPPER
-# ----------------------------
-if [ -x "$MAPPER" ]; then
-    "$MAPPER" &
-    MPID=$!
-    trap 'kill $MPID 2>/dev/null' EXIT
+    # Event Handling
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_LEFT:
+                col_idx = (col_idx - 1) % len(MENU)
+                row_idx = 0
+            elif event.key == pygame.K_RIGHT:
+                col_idx = (col_idx + 1) % len(MENU)
+                row_idx = 0
+            elif event.key == pygame.K_UP:
+                row_idx = (row_idx - 1) % len(MENU[col_idx]["items"])
+            elif event.key == pygame.K_DOWN:
+                row_idx = (row_idx + 1) % len(MENU[col_idx]["items"])
+            elif event.key == pygame.K_RETURN:
+                cmd = MENU[col_idx]["items"][row_idx]["cmd"]
+                if cmd == "EXIT":
+                    running = False
+                else:
+                    # Suspend Pygame, run command, resume
+                    pygame.display.quit()
+                    subprocess.call(cmd, shell=True)
+                    pygame.display.init()
+                    screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.NOFRAME)
+                    if bg_img: # Reload bg might be needed depending on memory
+                        screen.blit(bg_img, (0,0))
+
+    # Animation Logic (Smooth scrolling horizontal)
+    target_pos = -1 * (col_idx * (WIDTH // 3)) + (WIDTH // 3)
+    current_x += (target_pos - current_x) / CFG["animation_speed"]
+
+    # Draw Horizontal Categories
+    for i, cat in enumerate(MENU):
+        x_pos = current_x + (i * (WIDTH // 3))
+        
+        # Color based on selection
+        color = CFG["highlight_color"] if i == col_idx else CFG["text_color"]
+        size_mod = 1.2 if i == col_idx else 1.0
+        
+        # Draw Icon (Placeholder Circle if no image)
+        icon_path = os.path.join(ASSETS_DIR, cat.get("icon", ""))
+        if os.path.exists(icon_path):
+            img = pygame.image.load(icon_path)
+            # Scale logic here if needed
+            screen.blit(img, (x_pos - 32, CFG["category_y"] - 70))
+        else:
+            pygame.draw.circle(screen, color, (int(x_pos), CFG["category_y"] - 30), 20)
+
+        draw_text(screen, cat["category"], x_pos, CFG["category_y"], color, center=True, is_bold=(i==col_idx))
+
+        # Draw Vertical Items (Only for active column)
+        if i == col_idx:
+            for j, item in enumerate(cat["items"]):
+                y_pos = CFG["item_start_y"] + (j * (CFG["font_size"] + 20))
+                item_color = CFG["highlight_color"] if j == row_idx else CFG["text_color"]
+                
+                # Highlight indicator
+                if j == row_idx:
+                    pygame.draw.rect(screen, (50,50,50), (x_pos - 150, y_pos - 5, 300, CFG["font_size"] + 10), border_radius=5)
+                
+                draw_text(screen, item["label"], x_pos, y_pos, item_color, center=True)
+
+    pygame.display.flip()
+    clock.tick(60)
+
+pygame.quit()
+EOF
+chmod +x "$MENU_SCRIPT"
+
+# -------------------------------
+# 5. GENERATE DUMMY ASSETS
+# -------------------------------
+# This prevents the script from crashing if user has no images yet
+touch "$INSTALL_DIR/assets/placeholder.txt"
+# You can put "background.png", "icon_settings.png", "icon_games.png" in /usr/local/bin/xmb_boot/assets/
+
+# -------------------------------
+# 6. SETUP XINITRC & AUTOLOGIN
+# -------------------------------
+echo -e "${YELLOW}Configuring Startup...${NC}"
+
+# Create .xinitrc to launch mapper and python menu
+cat << EOF > "$HOME/.xinitrc"
+#!/bin/bash
+# Start the Controller Mapper in background
+$PS3_MAPPER &
+MAPPER_PID=\$!
+
+# Disable screen saver
+xset s off
+xset -dpms
+
+# Start the Python XMB Menu
+python3 $MENU_SCRIPT
+
+# Cleanup
+kill \$MAPPER_PID
+EOF
+
+# Configure Shell to start X automatically on TTY1
+TARGET_PROFILE="$HOME/.bash_profile"
+[[ ! -f "$TARGET_PROFILE" ]] && TARGET_PROFILE="$HOME/.profile"
+
+if ! grep -q "startx" "$TARGET_PROFILE"; then
+    echo '[[ -z $DISPLAY && $(tty) == /dev/tty1 ]] && startx' >> "$TARGET_PROFILE"
 fi
 
-# ----------------------------
-# INIT ITEMS
-# ----------------------------
-add_games
-detect_desktops
-add_system
-
-# ----------------------------
-# MAIN LOOP
-# ----------------------------
-while true; do
-    draw
-    read_input
-    case $? in
-        1) # up
-            ((CUR_ITEM--))
-            [ "$CUR_ITEM" -lt 0 ] && CUR_ITEM=$(( $(printf "%s\n" "${!ITEMS[@]}" | grep "^${CATS[CUR_CAT]}" | wc -l)-1 ))
-            ;;
-        2) # down
-            ((CUR_ITEM++))
-            local max=$(( $(printf "%s\n" "${!ITEMS[@]}" | grep "^${CATS[CUR_CAT]}" | wc -l)-1 ))
-            [ "$CUR_ITEM" -gt "$max" ] && CUR_ITEM=0
-            ;;
-        3) # right
-            ((CUR_CAT++))
-            [ "$CUR_CAT" -ge "${#CATS[@]}" ] && CUR_CAT=$((${#CATS[@]}-1))
-            CUR_ITEM=0
-            ;;
-        4) # left
-            ((CUR_CAT--))
-            [ "$CUR_CAT" -lt 0 ] && CUR_CAT=0
-            CUR_ITEM=0
-            ;;
-        5) # enter
-            cmd="${CMDS[${CATS[CUR_CAT]},${CUR_ITEM}]}"
-            [ -n "$cmd" ] && eval "$cmd"
-            ;;
-    esac
-done
-
-EOF
-sudo chmod +x "$BOOTMENU"
-
-# -------------------------------
-# 5. AUTOLOGIN (SYSTEMD)
-# -------------------------------
+# Systemd Autologin
 if command -v systemctl >/dev/null; then
-    echo -e "${YELLOW}Configuring TTY1 Autologin...${NC}"
     sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
     sudo tee /etc/systemd/system/getty@tty1.service.d/override.conf >/dev/null << EOF
 [Service]
@@ -322,19 +319,16 @@ EOF
     sudo systemctl daemon-reload
 fi
 
-# -------------------------------
-# 6. SHELL TRIGGER
-# -------------------------------
-# Arch/Fedora use .bash_profile, Ubuntu/Debian use .profile
-TARGET_PROFILE="$HOME/.bash_profile"
-[[ ! -f "$TARGET_PROFILE" ]] && TARGET_PROFILE="$HOME/.profile"
-
-TRIGGER='[ "$(tty)" = "/dev/tty1" ] && exec /usr/local/bin/bootmenu.sh'
-if ! grep -q "bootmenu.sh" "$TARGET_PROFILE" 2>/dev/null; then
-    echo -e "${YELLOW}Adding trigger to $TARGET_PROFILE...${NC}"
-    echo "$TRIGGER" >> "$TARGET_PROFILE"
-fi
-
-echo -e "${GREEN}DONE! Setup complete.${NC}"
-echo "1. Your user was added to the 'input' group for the controller mapper."
-echo "2. Please reboot for all group changes and autologin to take effect."
+echo -e "${GREEN}DONE!${NC}"
+echo "-----------------------------------------------------"
+echo "1. Reboot your system."
+echo "2. It will autologin and start the Graphical XMB Menu."
+echo "-----------------------------------------------------"
+echo "HOW TO CUSTOMIZE:"
+echo "1. Go to: $INSTALL_DIR"
+echo "2. Edit 'config.json' to change colors and font sizes."
+echo "3. Edit 'menu.py' to add more menu items (Games, Apps)."
+echo "4. Put images in '$INSTALL_DIR/assets/':"
+echo "   - 'background.png' for wallpaper"
+echo "   - 'icon_games.png', 'icon_settings.png' for categories."
+echo "-----------------------------------------------------"
