@@ -117,34 +117,30 @@ draw_menu() {
 while true; do
     draw_menu
 
-    # Read single key (keyboard or controller mapped)
-    read -rsn1 key
-    case "$key" in
-        $'\x1b') # arrow keys
-            read -rsn2 -t 0.1 k2
-            case "$k2" in
-                '[C') ((current++)) ;;  # right
-                '[D') ((current--)) ;;  # left
-            esac
-            ;;
-        '')  # Enter key
-            ACTION="${ACTIONS[$current]}"
-            ;;
-        x|X)  # Controller X
-            ACTION="${ACTIONS[$current]}"
-            ;;
-        q|Q)
-            kill $MAPPER_PID 2>/dev/null
-            exit 0
-            ;;
-    esac
+    # Read key input (works with arrows and controller)
+    read -rsn1 key1
 
-    # Wrap around
+    if [[ $key1 == $'\x1b' ]]; then
+        # Arrow key escape sequence
+        read -rsn2 -t 0.01 key2
+        case "$key2" in
+            '[C') ((current++)) ;;  # Right arrow
+            '[D') ((current--)) ;;  # Left arrow
+        esac
+    elif [[ $key1 == "" ]] || [[ $key1 == "x" ]] || [[ $key1 == "X" ]]; then
+        # Enter or controller X triggers action
+        ACTION="${ACTIONS[$current]}"
+    elif [[ $key1 == "q" ]] || [[ $key1 == "Q" ]]; then
+        kill $MAPPER_PID 2>/dev/null
+        exit 0
+    fi
+
+    # Wrap-around menu
     ((current<0)) && current=$max_index
     ((current>max_index)) && current=0
 
-    # Execute selected action if Enter or X pressed
-    if [ -n "$ACTION" ]; then
+    # Only execute action if Enter/X pressed
+    if [[ -n "$ACTION" ]]; then
         case "$ACTION" in
             retroarch)
                 kill $MAPPER_PID 2>/dev/null
