@@ -15,10 +15,15 @@ SEL_FG='\033[30m'
 CATEGORIES=("Games" "Apps" "System")
 declare -A ITEMS
 
-# Populate items
+# Populate items (real newlines!)
 ITEMS["Games"]=""
-[ -x "$(command -v retroarch)" ] && ITEMS["Games"]+="RetroArch\n"
+[ -x "$(command -v retroarch)" ] && ITEMS["Games"]+="RetroArch"$'\n'
+
+# Apps: detect .desktop files
 ITEMS["Apps"]=$(ls /usr/share/applications/*.desktop 2>/dev/null | xargs -n1 basename | sed 's/\.desktop//')
+ITEMS["Apps"]+=$'\n'  # Ensure it ends with a newline
+
+# System: detect DMs, WMs, utilities
 DM_WM=()
 [ -x "$(command -v startx)" ] && DM_WM+=("StartX")
 [ -x "$(command -v dwm)" ] && DM_WM+=("dwm")
@@ -27,8 +32,10 @@ DM_WM=()
 [ -x "$(command -v xfce4-session)" ] && DM_WM+=("XFCE")
 [ -x "$(command -v gnome-session)" ] && DM_WM+=("GNOME")
 [ -x "$(command -v kdeinit5)" ] && DM_WM+=("KDE")
-ITEMS["System"]="Terminal\nReboot\nShutdown"
-ITEMS["System"]+=$(printf "\n%s" "${DM_WM[@]}")
+ITEMS["System"]="Terminal"$'\n'"Reboot"$'\n'"Shutdown"
+for wm in "${DM_WM[@]}"; do
+    ITEMS["System"]+=$'\n'"$wm"
+done
 
 draw_menu() {
     clear
@@ -72,8 +79,8 @@ CAT=0
 SEL=0
 
 while true; do
-    # Update items for current category
-    IFS=$'\n' read -rd '' -a ITEMS_ARRAY <<< "${ITEMS[${CATEGORIES[CAT]}]}"
+    # Use mapfile to split real newlines into array
+    mapfile -t ITEMS_ARRAY <<< "${ITEMS[${CATEGORIES[CAT]}]}"
 
     draw_menu
     key=$(read_key)
