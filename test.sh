@@ -4,73 +4,49 @@ set -euo pipefail
 # -------------------------------
 # COLORS
 # -------------------------------
-BG_COLOR="\033[48;5;236m"
-FG_COLOR="\033[38;5;15m"
-SEL_BG_COLOR="\033[48;5;33m"
-SEL_FG_COLOR="\033[38;5;231m"
-RESET_COLOR="\033[0m"
+FG='\033[97m'      # White
+BG='\033[40m'      # Black background
+SEL_FG='\033[30m'  # Black
+SEL_BG='\033[106m' # Cyan background
+RESET='\033[0m'
 
 # -------------------------------
-# CONTROLLER MAPPER
+# CATEGORIES AND ITEMS
 # -------------------------------
-MAPPER="/usr/local/bin/ps3_to_keys.py"
-$MAPPER &
-MAPPER_PID=$!
-trap 'kill $MAPPER_PID 2>/dev/null; tput cnorm; echo -e "$RESET_COLOR"' EXIT
+CATEGORIES=("Games" "Apps" "System")
+declare -A ITEMS
+ITEMS["Games"]="RetroArch\nDoom\nQuake"
+ITEMS["Apps"]=$(ls /usr/share/applications/*.desktop 2>/dev/null | xargs -n1 basename | sed 's/\.desktop//')
+ITEMS["System"]="Terminal\nReboot\nShutdown"
 
 # -------------------------------
-# HIDE CURSOR
+# UTILS
 # -------------------------------
-tput civis
-clear
-
-# -------------------------------
-# DETECT APPS + DESKTOPS
-# -------------------------------
-ITEMS=()
-ACTIONS=()
-
-# Desktop sessions
-for f in /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop; do
-    [ -f "$f" ] || continue
-    name=$(grep '^Name=' "$f" | head -n1 | cut -d= -f2)
-    exec_cmd=$(grep '^Exec=' "$f" | head -n1 | cut -d= -f2)
-    [[ -n "$name" && -n "$exec_cmd" ]] || continue
-    ITEMS+=("[Desktop] $name")
-    ACTIONS+=("session:$exec_cmd")
-done
-
-# Applications
-for f in /usr/share/applications/*.desktop; do
-    [ -f "$f" ] || continue
-    nodisplay=$(grep '^NoDisplay=' "$f" | cut -d= -f2)
-    [[ "$nodisplay" == "true" ]] && continue
-    name=$(grep '^Name=' "$f" | head -n1 | cut -d= -f2)
-    exec_cmd=$(grep '^Exec=' "$f" | head -n1 | cut -d= -f2)
-    [[ -n "$name" && -n "$exec_cmd" ]] || continue
-    ITEMS+=("[App] $name")
-    ACTIONS+=("app:$exec_cmd")
-done
-
-# System
-ITEMS+=("[Shell] Terminal" "[System] Reboot" "[System] Shutdown")
-ACTIONS+=("shell" "reboot" "shutdown")
-
-# -------------------------------
-# MENU STATE
-# -------------------------------
-SEL=0
 draw_menu() {
     clear
-    echo -e "${FG_COLOR}--- ASCII XMB Menu ---${RESET_COLOR}"
-    for i in "${!ITEMS[@]}"; do
-        if (( i == SEL )); then
-            echo -e "${SEL_BG_COLOR}${SEL_FG_COLOR}> ${ITEMS[i]} <${RESET_COLOR}"
+    echo -e "${FG}${BG}=== ASCII XMB Menu ===${RESET}"
+    
+    # Horizontal categories
+    for i in "${!CATEGORIES[@]}"; do
+        if (( i == CAT )); then
+            echo -ne "${SEL_BG}${SEL_FG} ${CATEGORIES[i]} ${RESET}  "
         else
-            echo -e "  ${ITEMS[i]}"
+            echo -ne " ${CATEGORIES[i]}  "
         fi
     done
-    echo -e "${FG_COLOR}Use ↑ ↓ to move, Enter to select, ESC to exit${RESET_COLOR}"
+    echo -e "\n"
+
+    # Vertical items
+    IFS=$'\n' read -rd '' -a ITEMS_ARRAY <<< "${ITEMS[${CATEGORIES[CAT]}]}"
+    for i in "${!ITEMS_ARRAY[@]}"; do
+        if (( i == SEL )); then
+            echo -e "${SEL_BG}${SEL_FG}> ${ITEMS_ARRAY[i]} <${RESET}"
+        else
+            echo "  ${ITEMS_ARRAY[i]}"
+        fi
+    done
+
+    echo -e "${FG}${BG}Use ← → to change category, ↑ ↓ to move, Enter to select, ESC to exit${RESET}"
 }
 
 read_key() {
@@ -81,41 +57,47 @@ read_key() {
 # -------------------------------
 # MAIN LOOP
 # -------------------------------
+CAT=0
+SEL=0
+
 while true; do
     draw_menu
     key=$(read_key)
     case "$key" in
-        $'\x1b[A') SEL=$(( (SEL-1+${#ITEMS[@]}) % ${#ITEMS[@]} )) ;;  # Up
-        $'\x1b[B') SEL=$(( (SEL+1) % ${#ITEMS[@]} )) ;;  # Down
+        $'\x1b[A') SEL=$(( (SEL-1 + ${#ITEMS_ARRAY[@]}) % ${#ITEMS_ARRAY[@]} )) ;; # Up
+        $'\x1b[B') SEL=$(( (SEL+1) % ${#ITEMS_ARRAY[@]} )) ;; # Down
+        $'\x1b[C') CAT=$(( (CAT+1) % ${#CATEGORIES[@]} )); SEL=0 ;; # Right
+        $'\x1b[D') CAT=$(( (CAT-1 + ${#CATEGORIES[@]}) % ${#CATEGORIES[@]} )); SEL=0 ;; # Left
         "")  # Enter
-            case "${ACTIONS[SEL]}" in
-                app:*)
-                    cmd="${ACTIONS[SEL]#app:}"
-                    kill $MAPPER_PID 2>/dev/null
-                    $cmd || read -p "App failed. Enter..."
-                    $MAPPER & MAPPER_PID=$!
+            CHOICE="${ITEMS_ARRAY[SEL]}"
+            case "$CHOICE" in
+                RetroArch)
+                    clear
+                    echo "Launching RetroArch..."
+                    sleep 1
                     ;;
-                session:*)
-                    cmd="${ACTIONS[SEL]#session:}"
-                    kill $MAPPER_PID 2>/dev/null
-                    echo "exec $cmd" > "$HOME/.xinitrc"
-                    startx || read -p "Desktop failed. Enter..."
-                    $MAPPER & MAPPER_PID=$!
+                Terminal)
+                    clear
+                    bash
                     ;;
-                shell)
-                    clear; bash ;;
-                reboot)
-                    sudo reboot ;;
-                shutdown)
-                    sudo shutdown now ;;
+                Reboot)
+                    echo "Rebooting..."
+                    sleep 1
+                    ;;
+                Shutdown)
+                    echo "Shutting down..."
+                    sleep 1
+                    ;;
+                *)
+                    if [[ -f "/usr/share/applications/$CHOICE.desktop" ]]; then
+                        exec $(grep '^Exec=' "/usr/share/applications/$CHOICE.desktop" | cut -d= -f2)
+                    fi
+                    ;;
             esac
             ;;
-        $'\x1b') break ;;  # ESC
+        $'\x1b') break ;; # ESC
     esac
 done
 
-# -------------------------------
-# CLEANUP
-# -------------------------------
-tput cnorm
-echo -e "$RESET_COLOR"
+clear
+echo -e "$RESET"
