@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # -------------------------------
-# XMB-STYLE GAME BOOT MENU
+# Simple Game Boot Menu 
 # -------------------------------
 
 # Colors
@@ -19,9 +19,12 @@ BG_CYAN='\033[46m'
 # Controller Mapper Path
 MAPPER="/usr/local/bin/ps3_to_keys.py"
 
-# Detect available desktop sessions
+# -------------------------------
+# Detect DEs/WMs and RetroArch
+# -------------------------------
 detect_sessions() {
     local sessions=()
+    # Scan DEs/WMs
     for f in /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop; do
         [ -f "$f" ] || continue
         name=$(grep '^Name=' "$f" | head -n1 | cut -d= -f2)
@@ -31,7 +34,13 @@ detect_sessions() {
     echo "${sessions[@]}"
 }
 
+detect_retroarch() {
+    command -v retroarch >/dev/null && echo "RetroArch"
+}
+
+# -------------------------------
 # System Info
+# -------------------------------
 get_system_info() {
     local mem=$(free -h --si | awk '/^Mem:/ {print $3 "/" $2}')
     local load=$(uptime | awk -F'load average:' '{print $2}' | cut -d, -f1 | xargs)
@@ -41,26 +50,31 @@ get_system_info() {
     echo "Mem: $mem | Load: $load | CPU: $cpu | Temp: $temp"
 }
 
-# Start controller mapper in background
+# -------------------------------
+# Start controller mapper
+# -------------------------------
 $MAPPER &
 MAPPER_PID=$!
 trap 'kill $MAPPER_PID 2>/dev/null' EXIT
 
 # -------------------------------
-# Build menu items array
+# Build menu items dynamically
 # -------------------------------
 MENU_ITEMS=()
 ACTIONS=()
 
-[ "$(command -v retroarch)" ] && MENU_ITEMS+=("RetroArch") && ACTIONS+=("retroarch")
+# Auto-detect RetroArch
+ra=$(detect_retroarch)
+[ -n "$ra" ] && MENU_ITEMS+=("$ra") && ACTIONS+=("retroarch")
 
-# Desktop sessions
+# Auto-detect DEs/WMs
 for s in $(detect_sessions); do
     IFS='|' read -r name exec <<< "$s"
     MENU_ITEMS+=("Desktop: $name")
     ACTIONS+=("session:$exec")
 done
 
+# Always include Terminal, Reboot, Shutdown
 MENU_ITEMS+=("Terminal" "Reboot" "Shutdown")
 ACTIONS+=("shell" "reboot" "shutdown")
 
