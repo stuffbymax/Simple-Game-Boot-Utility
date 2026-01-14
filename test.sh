@@ -2,12 +2,22 @@
 set -euo pipefail
 
 # -------------------------------
+# USER CUSTOMIZATION
+# -------------------------------
+# Use ANSI 256-color codes or standard ones (0–7 for standard)
+BG_COLOR="\033[48;5;236m"       # Background color
+FG_COLOR="\033[38;5;15m"        # Normal text color
+SEL_BG_COLOR="\033[48;5;33m"    # Selection background
+SEL_FG_COLOR="\033[38;5;231m"   # Selection foreground
+RESET_COLOR="\033[0m"
+
+# -------------------------------
 # CONFIG
 # -------------------------------
 MAPPER="/usr/local/bin/ps3_to_keys.py"
 $MAPPER &
 MAPPER_PID=$!
-trap 'kill $MAPPER_PID 2>/dev/null' EXIT
+trap 'kill $MAPPER_PID 2>/dev/null; tput cnorm; echo -e "$RESET_COLOR"' EXIT
 
 # -------------------------------
 # TERMINAL HELPERS
@@ -79,16 +89,14 @@ draw_menu() {
         col=$((start_col + i*15))
         move_cursor $row $col
         if (( idx == SEL )); then
-            tput rev
-            echo -n "${display_items[i]}"
-            tput sgr0
+            echo -ne "${SEL_BG_COLOR}${SEL_FG_COLOR}${display_items[i]}${RESET_COLOR}"
         else
-            echo -n "${display_items[i]}"
+            echo -ne "${BG_COLOR}${FG_COLOR}${display_items[i]}${RESET_COLOR}"
         fi
     done
 
     move_cursor $((row+2)) 0
-    echo "← → arrows or controller | Enter to select | ESC to exit"
+    echo -e "${FG_COLOR}← → arrows or controller | Enter to select | ESC to exit${RESET_COLOR}"
 }
 
 # -------------------------------
