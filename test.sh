@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # -------------------------------
-# COLORS (USER CUSTOMIZATION)
+# COLORS (CUSTOMIZABLE)
 # -------------------------------
 BG_COLOR="\033[48;5;236m"
 FG_COLOR="\033[38;5;15m"
@@ -36,7 +36,7 @@ for f in /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop; d
     name=$(grep '^Name=' "$f" | head -n1 | cut -d= -f2)
     exec_cmd=$(grep '^Exec=' "$f" | head -n1 | cut -d= -f2)
     [[ -n "$name" && -n "$exec_cmd" ]] || continue
-    ITEMS+=("💻 $name")
+    ITEMS+=("[Desktop] $name")
     ACTIONS+=("session:$exec_cmd")
 done
 
@@ -48,12 +48,12 @@ for f in /usr/share/applications/*.desktop; do
     name=$(grep '^Name=' "$f" | head -n1 | cut -d= -f2)
     exec_cmd=$(grep '^Exec=' "$f" | head -n1 | cut -d= -f2)
     [[ -n "$name" && -n "$exec_cmd" ]] || continue
-    ITEMS+=("🛠️ $name")
+    ITEMS+=("[App] $name")
     ACTIONS+=("app:$exec_cmd")
 done
 
 # System
-ITEMS+=("🖥️ Terminal" "🔄 Reboot" "⏻ Shutdown")
+ITEMS+=("[Shell] Terminal" "[System] Reboot" "[System] Shutdown")
 ACTIONS+=("shell" "reboot" "shutdown")
 
 # -------------------------------
@@ -69,9 +69,9 @@ draw_menu() {
         move_col=$((col + i*20))
         tput cup $row $move_col
         if (( i == SEL )); then
-            echo -ne "${SEL_BG_COLOR}${SEL_FG_COLOR}${ITEMS[i]}${RESET_COLOR}"
+            echo -ne "${SEL_BG_COLOR}${SEL_FG_COLOR}> ${ITEMS[i]} <${RESET_COLOR}"
         else
-            echo -ne "${BG_COLOR}${FG_COLOR}${ITEMS[i]}${RESET_COLOR}"
+            echo -ne "${BG_COLOR}${FG_COLOR}  ${ITEMS[i]}  ${RESET_COLOR}"
         fi
     done
     tput cup $((row+2)) 0
@@ -130,4 +130,3 @@ tput cnorm
 echo -e "$RESET_COLOR"
 kill $MAPPER_PID 2>/dev/null
 clear
-exit 0
