@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
 
 # -------------------------------
-# Simple Game Boot Menu 
+# XMB-STYLE GAME BOOT MENU (BASH)
 # -------------------------------
 
 # Colors
 BOLD='\033[1m'
 RESET='\033[0m'
-WHITE='\033[97m'
 CYAN='\033[96m'
 YELLOW='\033[93m'
-GREEN='\033[92m'
-RED='\033[91m'
-MAGENTA='\033[95m'
-BG_BLUE='\033[44m'
 BG_CYAN='\033[46m'
 
 # Controller Mapper Path
@@ -24,7 +19,6 @@ MAPPER="/usr/local/bin/ps3_to_keys.py"
 # -------------------------------
 detect_sessions() {
     local sessions=()
-    # Scan DEs/WMs
     for f in /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop; do
         [ -f "$f" ] || continue
         name=$(grep '^Name=' "$f" | head -n1 | cut -d= -f2)
@@ -100,7 +94,6 @@ draw_menu() {
     # Horizontal XMB-style menu
     for i in "${!MENU_ITEMS[@]}"; do
         if [ "$i" -eq "$current" ]; then
-            # Highlighted item
             printf "${BG_CYAN}${BOLD}  %s  ${RESET}" "${MENU_ITEMS[$i]}"
         else
             printf "  %s  " "${MENU_ITEMS[$i]}"
@@ -112,34 +105,32 @@ draw_menu() {
 }
 
 # -------------------------------
-# Main loop
+# Main loop with smooth nav
 # -------------------------------
+ACTION=""
 while true; do
     draw_menu
 
-    # Read key input (works with arrows and controller)
+    # Read key input (keyboard or controller)
     read -rsn1 key1
-
     if [[ $key1 == $'\x1b' ]]; then
-        # Arrow key escape sequence
         read -rsn2 -t 0.01 key2
         case "$key2" in
-            '[C') ((current++)) ;;  # Right arrow
-            '[D') ((current--)) ;;  # Left arrow
+            '[C') ((current++)) ;;  # Right
+            '[D') ((current--)) ;;  # Left
         esac
     elif [[ $key1 == "" ]] || [[ $key1 == "x" ]] || [[ $key1 == "X" ]]; then
-        # Enter or controller X triggers action
         ACTION="${ACTIONS[$current]}"
     elif [[ $key1 == "q" ]] || [[ $key1 == "Q" ]]; then
         kill $MAPPER_PID 2>/dev/null
         exit 0
     fi
 
-    # Wrap-around menu
+    # Wrap-around
     ((current<0)) && current=$max_index
     ((current>max_index)) && current=0
 
-    # Only execute action if Enter/X pressed
+    # Execute selected action
     if [[ -n "$ACTION" ]]; then
         case "$ACTION" in
             retroarch)
