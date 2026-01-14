@@ -1,37 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# -------------------------------
-# COLORS
-# -------------------------------
 RESET='\033[0m'
 BOLD='\033[1m'
 
-# Define category colors (background + foreground)
-declare -A CAT_BG
-declare -A CAT_FG
-CAT_BG=( ["Games"]=44 ["Apps"]=42 ["System"]=45 )  # Blue, Green, Magenta
-CAT_FG=( ["Games"]=97 ["Apps"]=30 ["System"]=97 )  # White/Black
+# Category colors
+declare -A CAT_BG CAT_FG
+CAT_BG=( ["Games"]=44 ["Apps"]=42 ["System"]=45 )
+CAT_FG=( ["Games"]=97 ["Apps"]=30 ["System"]=97 )
 
-# Highlight colors
-SEL_BG='\033[103m' # Yellow background
-SEL_FG='\033[30m'  # Black foreground
+SEL_BG='\033[103m'
+SEL_FG='\033[30m'
 
-# -------------------------------
-# CATEGORIES
-# -------------------------------
 CATEGORIES=("Games" "Apps" "System")
 declare -A ITEMS
 
-# Games
+# Populate items
 ITEMS["Games"]=""
 [ -x "$(command -v retroarch)" ] && ITEMS["Games"]+="RetroArch\n"
-# Add any other known games if desired
-
-# Apps: detect .desktop files
 ITEMS["Apps"]=$(ls /usr/share/applications/*.desktop 2>/dev/null | xargs -n1 basename | sed 's/\.desktop//')
-
-# System: detect DMs, WMs, utilities
 DM_WM=()
 [ -x "$(command -v startx)" ] && DM_WM+=("StartX")
 [ -x "$(command -v dwm)" ] && DM_WM+=("dwm")
@@ -43,9 +30,6 @@ DM_WM=()
 ITEMS["System"]="Terminal\nReboot\nShutdown"
 ITEMS["System"]+=$(printf "\n%s" "${DM_WM[@]}")
 
-# -------------------------------
-# FUNCTIONS
-# -------------------------------
 draw_menu() {
     clear
     echo -e "${BOLD}=== ASCII XMB Menu ===${RESET}\n"
@@ -64,7 +48,6 @@ draw_menu() {
     echo -e "\n"
 
     # Vertical items
-    IFS=$'\n' read -rd '' -a ITEMS_ARRAY <<< "${ITEMS[${CATEGORIES[CAT]}]}"
     for i in "${!ITEMS_ARRAY[@]}"; do
         ITEM="${ITEMS_ARRAY[i]}"
         if (( i == SEL )); then
@@ -89,8 +72,12 @@ CAT=0
 SEL=0
 
 while true; do
+    # Update items for current category
+    IFS=$'\n' read -rd '' -a ITEMS_ARRAY <<< "${ITEMS[${CATEGORIES[CAT]}]}"
+
     draw_menu
     key=$(read_key)
+
     case "$key" in
         $'\x1b[A') SEL=$(( (SEL-1 + ${#ITEMS_ARRAY[@]}) % ${#ITEMS_ARRAY[@]} )) ;; # Up
         $'\x1b[B') SEL=$(( (SEL+1) % ${#ITEMS_ARRAY[@]} )) ;; # Down
@@ -99,18 +86,12 @@ while true; do
         "")  # Enter
             CHOICE="${ITEMS_ARRAY[SEL]}"
             case "$CHOICE" in
-                RetroArch)
-                    clear; echo "Launching RetroArch..."; sleep 1; retroarch -f ;;
-                Terminal)
-                    clear; bash ;;
-                Reboot)
-                    echo "Rebooting..."; sleep 1; sudo reboot ;;
-                Shutdown)
-                    echo "Shutting down..."; sleep 1; sudo shutdown now ;;
-                StartX|dwm|i3|bspwm|XFCE|GNOME|KDE)
-                    echo "Launching $CHOICE..."; sleep 1; exec $CHOICE ;;
+                RetroArch) clear; retroarch -f ;;
+                Terminal) clear; bash ;;
+                Reboot) sudo reboot ;;
+                Shutdown) sudo shutdown now ;;
+                StartX|dwm|i3|bspwm|XFCE|GNOME|KDE) exec $CHOICE ;;
                 *)
-                    # Try launching .desktop apps
                     if [[ -f "/usr/share/applications/$CHOICE.desktop" ]]; then
                         exec $(grep '^Exec=' "/usr/share/applications/$CHOICE.desktop" | cut -d= -f2)
                     fi ;;
