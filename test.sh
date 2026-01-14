@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # -------------------------------
-# COLORS (CUSTOMIZABLE)
+# COLORS
 # -------------------------------
 BG_COLOR="\033[48;5;236m"
 FG_COLOR="\033[38;5;15m"
@@ -11,7 +11,7 @@ SEL_FG_COLOR="\033[38;5;231m"
 RESET_COLOR="\033[0m"
 
 # -------------------------------
-# START CONTROLLER MAPPER
+# CONTROLLER MAPPER
 # -------------------------------
 MAPPER="/usr/local/bin/ps3_to_keys.py"
 $MAPPER &
@@ -60,31 +60,22 @@ ACTIONS+=("shell" "reboot" "shutdown")
 # MENU STATE
 # -------------------------------
 SEL=0
-
 draw_menu() {
     clear
-    row=$(( $(tput lines)/2 ))
-    col=2
+    echo -e "${FG_COLOR}--- ASCII XMB Menu ---${RESET_COLOR}"
     for i in "${!ITEMS[@]}"; do
-        move_col=$((col + i*20))
-        tput cup $row $move_col
         if (( i == SEL )); then
-            echo -ne "${SEL_BG_COLOR}${SEL_FG_COLOR}> ${ITEMS[i]} <${RESET_COLOR}"
+            echo -e "${SEL_BG_COLOR}${SEL_FG_COLOR}> ${ITEMS[i]} <${RESET_COLOR}"
         else
-            echo -ne "${BG_COLOR}${FG_COLOR}  ${ITEMS[i]}  ${RESET_COLOR}"
+            echo -e "  ${ITEMS[i]}"
         fi
     done
-    tput cup $((row+2)) 0
-    echo -e "${FG_COLOR}← → to move | Enter to select | ESC to exit${RESET_COLOR}"
+    echo -e "${FG_COLOR}Use ↑ ↓ to move, Enter to select, ESC to exit${RESET_COLOR}"
 }
 
 read_key() {
-    IFS= read -rsn1 k1
-    if [[ $k1 == $'\x1b' ]]; then
-        IFS= read -rsn2 k2
-        k1+=$k2
-    fi
-    echo "$k1"
+    IFS= read -rsn3 key
+    echo "$key"
 }
 
 # -------------------------------
@@ -94,8 +85,8 @@ while true; do
     draw_menu
     key=$(read_key)
     case "$key" in
-        $'\x1b[C') SEL=$(( (SEL+1) % ${#ITEMS[@]} )) ;;  # Right
-        $'\x1b[D') SEL=$(( (SEL-1+${#ITEMS[@]}) % ${#ITEMS[@]} )) ;;  # Left
+        $'\x1b[A') SEL=$(( (SEL-1+${#ITEMS[@]}) % ${#ITEMS[@]} )) ;;  # Up
+        $'\x1b[B') SEL=$(( (SEL+1) % ${#ITEMS[@]} )) ;;  # Down
         "")  # Enter
             case "${ACTIONS[SEL]}" in
                 app:*)
@@ -128,5 +119,3 @@ done
 # -------------------------------
 tput cnorm
 echo -e "$RESET_COLOR"
-kill $MAPPER_PID 2>/dev/null
-clear
