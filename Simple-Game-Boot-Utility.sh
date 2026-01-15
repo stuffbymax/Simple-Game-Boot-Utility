@@ -1,3 +1,7 @@
+#created BY marinP/stuffbymax
+#description: Simple Game Boot Utility (setup PKGs, uinput, controller mapping, boot menu)
+#version: 0.0.1 - stable
+#License: MIT
 #!/usr/bin/env bash
 set -euo pipefail
 
