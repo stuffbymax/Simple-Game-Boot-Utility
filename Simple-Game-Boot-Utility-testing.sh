@@ -50,7 +50,8 @@ elif command -v apt-get >/dev/null; then
         [py_evdev]="python3-evdev"
         [py_uinput]=" python3-uinput"
         [retro]="retroarch"
-        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
+        [utils]="dialog wget curl unzip sudo neovim tmux antimicrox"
+        [console]="antimicrox squeekboard onboard "
     )
 elif command -v dnf >/dev/null; then
     PM="dnf"
@@ -277,6 +278,13 @@ $MAPPER &
 MAPPER_PID=$!
 trap 'kill $MAPPER_PID 2>/dev/null' EXIT
 
+    STEAM=$(detect_steam || true)
+    [ -n "$STEAM" ] && {
+        ITEMS+=($i "Steam")
+        ACTIONS+=("steam:$STEAM")
+        ((i++))
+    }
+
 while true; do
     ITEMS=()
     ACTIONS=()
@@ -306,6 +314,10 @@ while true; do
     ACTION="${ACTIONS[$((CHOICE-1))]}"
 
     case "$ACTION" in
+        steam:*)
+            pkill -f ps3_to_keys.py || true
+            xinit ${ACTION#steam:} -bigpicture -- :0
+            ;;
         retroarch)
             kill $MAPPER_PID 2>/dev/null
             retroarch -f || read -p "Error starting RetroArch"
@@ -313,6 +325,9 @@ while true; do
             ;;
         session:*)
             kill $MAPPER_PID 2>/dev/null
+            antimicrox --hidden &
+            onboard &
+            startx
             echo "exec ${ACTION#session:}" > "$HOME/.xinitrc"
             startx || read -p "Error starting Desktop"
             $MAPPER & MAPPER_PID=$!
