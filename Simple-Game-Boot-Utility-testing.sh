@@ -13,6 +13,7 @@ USER_NAME="$(whoami)"
 BOOTMENU="/usr/local/bin/bootmenu.sh"
 PS3_PYTHON="/usr/local/bin/ps3_to_keys.py"
 LOG_FILE="$HOME/install_log.txt"
+conf="conf/"
 
 # Colors for terminal
 RED='\033[0;31m'
@@ -387,7 +388,7 @@ echo -e "${GREEN}Boot Menu installation complete.${NC}"
 # 7. RETROARCH CONFIG & CORES
 # -------------------------------
 echo -e "${YELLOW}Setting up RetroArch config and downloading cores...${NC}"
-cp .conf/ $HOME/.config/
+cp conf/ $HOME/.config/
 
 cd "$HOME/.config/retroarch/cores/"
 wget -r -np -nd -R "index.html*" https://buildbot.libretro.com/nightly/linux/x86_64/latest/
