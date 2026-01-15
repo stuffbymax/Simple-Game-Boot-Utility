@@ -30,46 +30,76 @@ read -r -p "This script modifies system files. Continue? [y/N]: " CONFIRM
 # -------------------------------
 # 1. DETECT PACKAGE MANAGER & MAP NAMES
 # -------------------------------
-declare -A PKGS
+detect_pm() {
+    for pm in pacman apt dnf zypper xbps-install apk; do
+        command -v "$pm" >/dev/null && echo "$pm" && return
+    done
+    echo "unsupported"
+}
 
-if command -v pacman >/dev/null; then
-    PM="pacman"
-    INSTALL="sudo pacman -Sy --needed --noconfirm"
-    PKGS=(
-        [xorg]="xorg-server xorg-xinit xorg-xinput"
-        [py_evdev]="python-evdev"
-        [py_uinput]="python-uinput"
-        [retro]="retroarch retroarch-assets"
-        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
-    )
-elif command -v apt-get >/dev/null; then
-    PM="apt"
-    INSTALL="sudo apt-get update && sudo apt-get install -y"
-    PKGS=(
-        [xorg]="xinit xserver-xorg-core xserver-xorg-input-all"
-        [py_evdev]="python3-evdev"
-        [py_uinput]=" python3-uinput"
-        [retro]="retroarch"
-        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
-    )
-elif command -v dnf >/dev/null; then
-    PM="dnf"
-    INSTALL="sudo dnf install -y"
-    PKGS=(
-        [xorg]="xorg-x11-server-Xorg xorg-x11-xinit"
-        [py_evdev]="python3-evdev"
-        [py_uinput]="python3-uinput"
-        [retro]="retroarch"
-        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
-    )
-else
-    echo -e "${RED}Error: Unsupported distribution.${NC}"
-    exit 1
-fi
+PM="$(detect_pm)"
+echo "Detected package manager: $PM"
 
-echo -e "${YELLOW}Detected $PM. Installing packages...${NC}"
-$INSTALL ${PKGS[xorg]} ${PKGS[py_evdev]} ${PKGS[py_uinput]} ${PKGS[retro]} ${PKGS[utils]} || echo "Some packages failed, continuing..."
+install_packages() {
+    case "$PM" in
+        pacman)
+            sudo pacman -Syu --needed --noconfirm \
+                retroarch retroarch-assets \
+                xorg-server xorg-xinit xorg-xinput \
+                dialog antimicrox onboard \
+                python-evdev python-uinput \
+                wget curl unzip sudo neovim tmux
+            ;;
+        apt)
+            sudo apt update
+            sudo apt install -y \
+                retroarch retroarch-assets \
+                xinit xserver-xorg-core xserver-xorg-input-all \
+                dialog antimicrox onboard \
+                python3-evdev python3-uinput \
+                wget curl unzip sudo neovim tmux
+            ;;
+        dnf)
+            sudo dnf install -y \
+                retroarch retroarch-assets \
+                xorg-x11-server-Xorg xorg-x11-xinit \
+                dialog antimicrox onboard \
+                python3-evdev python3-uinput \
+                wget curl unzip sudo neovim tmux
+            ;;
+        zypper)
+            sudo zypper install -y \
+                retroarch retroarch-assets \
+                xorg-x11-server xinit \
+                dialog antimicrox onboard \
+                python3-evdev python3-uinput \
+                wget curl unzip sudo neovim tmux
+            ;;
+        xbps-install)
+            sudo xbps-install -Sy \
+                retroarch retroarch-assets \
+                xorg-minimal xinit \
+                dialog antimicrox onboard \
+                python3-evdev python3-uinput \
+                wget curl unzip sudo neovim tmux
+            ;;
+        apk)
+            sudo apk add --no-cache \
+                retroarch \
+                xorg-server xinit \
+                dialog antimicrox onboard \
+                py3-evdev py3-uinput \
+                wget curl unzip sudo neovim tmux
+            ;;
+        *)
+            echo -e "${RED}No supported package manager found${NC}"
+            exit 1
+            ;;
+    esac
+}
 
+echo -e "${YELLOW}Installing packages...${NC}"
+install_packages || echo "Some packages failed, continuing..."
 # -------------------------------
 # 2. UINPUT & PERMISSIONS
 # -------------------------------
