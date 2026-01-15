@@ -729,4 +729,142 @@ if command -v systemctl >/dev/null; then
     sudo tee /etc/systemd/system/getty@tty1.service.d/override.conf >/dev/null << EOF
 [Service]
 ExecStart=
-ExecStart=-/sbin
+ExecStart=-/sbin/agetty --autologin $USER_NAME --noclear %I \$TERM
+EOF
+    sudo systemctl daemon-reload
+fi
+
+# -------------------------------
+# 7. SHELL TRIGGER
+# -------------------------------
+TARGET_PROFILE="$HOME/.bash_profile"
+[[ ! -f "$TARGET_PROFILE" ]] && TARGET_PROFILE="$HOME/.profile"
+
+TRIGGER='[ "$(tty)" = "/dev/tty1" ] && exec /usr/local/bin/bootmenu.sh'
+if ! grep -q "bootmenu.sh" "$TARGET_PROFILE" 2>/dev/null; then
+    echo -e "${YELLOW}Adding trigger to $TARGET_PROFILE...${NC}"
+    echo "$TRIGGER" >> "$TARGET_PROFILE"
+fi
+
+# -------------------------------
+# 8. XFCE AUTOSTART CONFIGURATION
+# -------------------------------
+echo -e "${YELLOW}Setting up XFCE autostart...${NC}"
+mkdir -p "$HOME/.config/autostart"
+
+# AntiMicroX autostart
+cat > "$HOME/.config/autostart/antimicrox.desktop" << 'AUTOSTART_EOF'
+[Desktop Entry]
+Type=Application
+Name=AntiMicroX
+Comment=Map controller to keyboard/mouse
+Exec=sh -c 'if command -v antimicrox >/dev/null; then antimicrox --hidden; elif flatpak list | grep -q antimicrox; then flatpak run io.github.antimicrox.antimicrox --hidden; fi'
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=2
+AUTOSTART_EOF
+
+# Onboard autostart
+cat > "$HOME/.config/autostart/onboard.desktop" << 'AUTOSTART_EOF'
+[Desktop Entry]
+Type=Application
+Name=Onboard
+Comment=On-screen keyboard
+Exec=onboard
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=2
+AUTOSTART_EOF
+
+echo -e "${GREEN}Autostart files created${NC}"
+
+# -------------------------------
+# 9. RETROARCH CONFIG & CORES
+# -------------------------------
+if [ -d "conf/" ]; then
+    echo -e "${YELLOW}Setting up RetroArch config...${NC}"
+    mkdir -p "$HOME/.config/retroarch"
+    cp -r conf/* "$HOME/.config/retroarch/" 2>/dev/null || echo "No config files to copy"
+fi
+
+echo -e "${YELLOW}Downloading RetroArch cores...${NC}"
+mkdir -p "$HOME/.config/retroarch/cores"
+cd "$HOME/.config/retroarch/cores/" || exit
+
+# Download cores
+if command -v wget >/dev/null; then
+    echo "Downloading cores from buildbot (this may take a while)..."
+    wget -q --show-progress -r -np -nd -R "index.html*" \
+        https://buildbot.libretro.com/nightly/linux/x86_64/latest/ \
+        2>&1 | grep -E "saved|error" || echo "Download completed"
+    
+    # Extract and cleanup
+    for zipfile in *.zip; do
+        [ -f "$zipfile" ] && unzip -o "$zipfile" && rm "$zipfile"
+    done
+    
+    echo -e "${GREEN}RetroArch cores installed${NC}"
+else
+    echo -e "${YELLOW}wget not found, skipping core download${NC}"
+fi
+
+cd - >/dev/null || exit
+
+# -------------------------------
+# 10. DISABLE LOGIN MANAGER
+# -------------------------------
+echo -e "${YELLOW}Disabling login manager...${NC}"
+if command -v systemctl >/dev/null; then
+    for dm in gdm gdm3 sddm lightdm lxdm; do
+        if systemctl is-active "$dm" >/dev/null 2>&1; then
+            sudo systemctl disable "$dm" 2>/dev/null && \
+            echo -e "${GREEN}Disabled $dm${NC}" || \
+            echo -e "${YELLOW}Could not disable $dm${NC}"
+        fi
+    done
+fi
+
+# -------------------------------
+# 11. RUN INITIAL DIAGNOSTIC
+# -------------------------------
+echo -e "\n${CYAN}================================================"
+echo -e "   RUNNING INITIAL DIAGNOSTICS"
+echo -e "================================================${NC}\n"
+
+if [ -x "$DIAGNOSTIC" ]; then
+    "$DIAGNOSTIC"
+else
+    echo -e "${RED}Diagnostic script not found${NC}"
+fi
+
+# -------------------------------
+# 12. FINAL INSTRUCTIONS
+# -------------------------------
+echo -e "\n${CYAN}================================================"
+echo -e "   INSTALLATION COMPLETE"
+echo -e "================================================${NC}"
+echo ""
+echo -e "${GREEN}✓${NC} Boot menu installed to: $BOOTMENU"
+echo -e "${GREEN}✓${NC} Controller mapper installed to: $PS3_PYTHON"
+echo -e "${GREEN}✓${NC} Diagnostic tool installed to: $DIAGNOSTIC"
+echo ""
+echo -e "${YELLOW}IMPORTANT NEXT STEPS:${NC}"
+echo "1. Your user was added to 'input' and 'video' groups"
+echo "2. ${RED}You MUST reboot${NC} for group changes to take effect"
+echo "3. After reboot, the boot menu will launch automatically on TTY1"
+echo "4. Login manager has been disabled (if present)"
+echo ""
+echo -e "${CYAN}TROUBLESHOOTING:${NC}"
+echo "• If apps don't launch, run: /usr/local/bin/diagnostic.sh"
+echo "• Check logs in: ~/.xsession-errors, ~/xsession.log, ~/retroarch.log"
+echo "• For manual testing: DISPLAY=:0 antimicrox &"
+echo "• Controller test: /usr/local/bin/ps3_to_keys.py"
+echo ""
+echo -e "${YELLOW}Re-enable login manager if needed:${NC}"
+echo "  sudo systemctl enable gdm    # For GNOME"
+echo "  sudo systemctl enable sddm   # For KDE"
+echo "  sudo systemctl enable lightdm # For others"
+echo ""
+read -r -p "Press Enter to finish installation..."
