@@ -258,6 +258,12 @@ detect_sessions() {
     done
 }
 
+detect_steam() {
+    command -v steam >/dev/null && echo steam && return
+    command -v flatpak >/dev/null && flatpak list | grep -qi steam \
+        && echo "flatpak run com.valvesoftware.Steam"
+}
+
 get_system_info() {
     local mem=$(free -h --si | awk '/^Mem:/ {print $3 "/" $2}')
     local load=$(uptime | awk -F'load average:' '{print $2}' | cut -d, -f1 | xargs)
@@ -366,6 +372,14 @@ if ! grep -q "bootmenu.sh" "$TARGET_PROFILE" 2>/dev/null; then
     echo -e "${YELLOW}Adding trigger to $TARGET_PROFILE...${NC}"
     echo "$TRIGGER" >> "$TARGET_PROFILE"
 fi
+
+echo "installing retroarch cores"
+cd .config 
+mkdir retroarch/cores
+cd retroarch/cores
+wget -r -np -nd -R "index.html*" https://buildbot.libretro.com/nightly/linux/x86_64/latest/
+unzip -o "*.zip"
+rm *.zip 
 
 echo -e "${GREEN}DONE! Setup complete.${NC}"
 echo "1. Your user was added to the 'input' group for the controller mapper."
