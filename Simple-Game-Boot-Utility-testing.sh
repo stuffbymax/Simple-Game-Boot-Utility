@@ -55,7 +55,8 @@ elif command -v apt-get >/dev/null; then
         [py_evdev]="python3-evdev"
         [py_uinput]=" python3-uinput"
         [retro]="retroarch"
-        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
+        [utils]="dialog wget curl unzip sudo neovim tmux antimicrox"
+        [console]="antimicrox squeekboard onboard "
     )
 elif command -v dnf >/dev/null; then
     PM="dnf"
@@ -262,6 +263,12 @@ detect_sessions() {
     done
 }
 
+detect_steam() {
+    command -v steam >/dev/null && echo steam && return
+    command -v flatpak >/dev/null && flatpak list | grep -qi steam \
+        && echo "flatpak run com.valvesoftware.Steam"
+}
+
 detect_apps() {
     command -v retroarch >/dev/null && echo "RetroArch|retroarch -f"
     command -v steam >/dev/null && echo "Steam|steam -bigpicture"
@@ -291,7 +298,7 @@ EOF
 # -------------------------------
 "$MAPPER" &
 MAPPER_PID=$!
-trap 'kill $MAPPER_PID 2>/dev/null || true' EXIT
+trap 'kill $MAPPER_PID 2>/dev/null' EXIT
 
 # -------------------------------
 # MENU LOOP
@@ -331,15 +338,16 @@ while true; do
     kill "$MAPPER_PID" 2>/dev/null || true
 
     case "$ACTION" in
-        app:*)
-            launch_x "${ACTION#app:}"
+        retroarch)
+            kill $MAPPER_PID 2>/dev/null
+            retroarch -f || read -p "Error starting RetroArch"
+            $MAPPER & MAPPER_PID=$!
             ;;
         session:*)
-            launch_x "${ACTION#session:}"
-            ;;
-        shell)
-            clear
-            bash
+            kill $MAPPER_PID 2>/dev/null
+            echo "exec ${ACTION#session:}" > "$HOME/.xinitrc"
+            startx || read -p "Error starting Desktop"
+            $MAPPER & MAPPER_PID=$!
             ;;
         reboot)
             systemctl reboot || sudo reboot
@@ -413,6 +421,14 @@ fi
 # FINAL MESSAGE
 # -------------------------------
 
+echo "installing retroarch cores"
+cd .config 
+mkdir retroarch/cores
+cd retroarch/cores
+wget -r -np -nd -R "index.html*" https://buildbot.libretro.com/nightly/linux/x86_64/latest/
+unzip -o "*.zip"
+rm *.zip 
+cp .conf/ .config/
 echo -e "${GREEN}DONE! Setup complete.${NC}"
 echo "1. Your user was added to the 'input' group for the controller mapper."
 echo "2. Please reboot for all group changes and autologin to take effect."#
