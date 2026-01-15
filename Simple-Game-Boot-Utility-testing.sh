@@ -279,19 +279,7 @@ detect_apps() {
     fi
 }
 
-launch_x() {
-    local cmd="$1"
 
-    cat > "$TMP_XINIT" <<EOF
-#!/usr/bin/env bash
-antimicrox --hidden &
-onboard &
-exec $cmd
-EOF
-
-    chmod +x "$TMP_XINIT"
-    startx "$TMP_XINIT" -- :0
-}
 
 # -------------------------------
 # CONTROLLER MAPPER
