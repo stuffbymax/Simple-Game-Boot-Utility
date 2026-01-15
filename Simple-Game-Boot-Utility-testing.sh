@@ -401,7 +401,7 @@ echo -e "${GREEN}Boot Menu installation complete.${NC}"
 # 7. RETROARCH CONFIG & CORES
 # -------------------------------
 echo -e "${YELLOW}Setting up RetroArch config and downloading cores...${NC}"
-cp .conf/ $HOME/.config/
+cp conf/ $HOME/.config/
 
 cd "$HOME/.config/retroarch/cores/"
 wget -r -np -nd -R "index.html*" https://buildbot.libretro.com/nightly/linux/x86_64/latest/
@@ -422,17 +422,7 @@ if command -v systemctl >/dev/null; then
     fi
 fi
 
-# -------------------------------
-# FINAL MESSAGE
-# -------------------------------
 
-echo "installing retroarch cores"
-cp conf "$HOME/.config/"
-mkdir -p "$HOME/.config/retroarch/cores"
-cd "$HOME/.config/retroarch/cores"
-wget -r -np -nd -R "index.html*" https://buildbot.libretro.com/nightly/linux/x86_64/latest/
-unzip -o "*.zip"
-rm *.zip 
 
 
 
