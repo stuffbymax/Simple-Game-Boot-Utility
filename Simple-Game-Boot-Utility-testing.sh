@@ -1,8 +1,3 @@
-#created BY marinP/stuffbymax
-#description: Simple Game Boot Utility (setup PKGs, uinput, controller mapping, boot menu)
-#version: 0.0.3 - testing
-#License: MIT
-
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -13,7 +8,6 @@ USER_NAME="$(whoami)"
 BOOTMENU="/usr/local/bin/bootmenu.sh"
 PS3_PYTHON="/usr/local/bin/ps3_to_keys.py"
 LOG_FILE="$HOME/install_log.txt"
-conf="conf/"
 
 # Colors for terminal
 RED='\033[0;31m'
@@ -56,8 +50,7 @@ elif command -v apt-get >/dev/null; then
         [py_evdev]="python3-evdev"
         [py_uinput]=" python3-uinput"
         [retro]="retroarch"
-        [utils]="dialog wget curl unzip sudo neovim tmux antimicrox"
-        [console]="antimicrox squeekboard onboard "
+        [utils]="dialog onboard wget curl unzip sudo neovim tmux antimicrox"
     )
 elif command -v dnf >/dev/null; then
     PM="dnf"
@@ -240,69 +233,68 @@ sudo chmod +x "$PS3_PYTHON"
 echo -e "${YELLOW}Creating Boot Menu...${NC}"
 sudo tee "$BOOTMENU" >/dev/null << 'EOF'
 #!/usr/bin/env bash
-set -euo pipefail
 
-# -------------------------------
-# CONFIG
-# -------------------------------
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Determine Dialog tool
+DIALOG_TOOL="dialog"
+command -v dialog >/dev/null || DIALOG_TOOL="whiptail"
+
+# Controller Mapper Path
 MAPPER="/usr/local/bin/ps3_to_keys.py"
-TMP_XINIT="/tmp/sgbu-xinitrc"
-export SGBU_RUNNING=1
 
-DIALOG=dialog
-command -v dialog >/dev/null || DIALOG=whiptail
-
-# -------------------------------
-# HELPERS
-# -------------------------------
 detect_sessions() {
     for f in /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop; do
         [ -f "$f" ] || continue
-        name=$(grep -m1 '^Name=' "$f" | cut -d= -f2)
-        exec=$(grep -m1 '^Exec=' "$f" | cut -d= -f2)
-        [ -n "$name" ] && [ -n "$exec" ] && echo "$name|$exec"
+        name=$(grep '^Name=' "$f" | head -n1 | cut -d= -f2)
+        exec=$(grep '^Exec=' "$f" | head -n1 | cut -d= -f2)
+        [[ -n "$name" && -n "$exec" ]] && echo "$name|$exec"
     done
 }
 
-detect_steam() {
-    command -v steam >/dev/null && echo steam && return
-    command -v flatpak >/dev/null && flatpak list | grep -qi steam \
-        && echo "flatpak run com.valvesoftware.Steam"
+get_system_info() {
+    local mem=$(free -h --si | awk '/^Mem:/ {print $3 "/" $2}')
+    local load=$(uptime | awk -F'load average:' '{print $2}' | cut -d, -f1 | xargs)
+    
+    # top -bn1 is slow (takes ~1 sec). Consider using /proc/stat for speed.
+    local cpu=$(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4"%"}')
+    
+    # sensors might fail if not installed; use 2>/dev/null to prevent errors
+    local temp=$(sensors 2>/dev/null | grep "Package id 0" | awk '{print $4}' | sed 's/+//')
+    [ -z "$temp" ] && temp="N/A"
+
+    # EVERYTHING MUST BE ON ONE ECHO LINE
+    echo "Mem: $mem | Load: $load | CPU: $cpu | Temp: $temp"
 }
 
-detect_apps() {
-    command -v retroarch >/dev/null && echo "RetroArch|retroarch -f"
-    command -v steam >/dev/null && echo "Steam|steam -bigpicture"
+STEAM=$(detect_steam || true)
+    [ -n "$STEAM" ] && {
+        ITEMS+=($i "Steam")
+        ACTIONS+=("steam:$STEAM")
+        ((i++))
+    }
 
-    if command -v flatpak >/dev/null &&
-       flatpak list | grep -qi steam; then
-        echo "Steam (Flatpak)|flatpak run com.valvesoftware.Steam -bigpicture"
-    fi
-}
-
-
-
-# -------------------------------
-# CONTROLLER MAPPER
-# -------------------------------
-"$MAPPER" &
+# Start mapper
+$MAPPER &
 MAPPER_PID=$!
 trap 'kill $MAPPER_PID 2>/dev/null' EXIT
 
-# -------------------------------
-# MENU LOOP
-# -------------------------------
 while true; do
     ITEMS=()
     ACTIONS=()
     i=1
 
-    # Apps
-    while IFS='|' read -r name cmd; do
-        ITEMS+=($i "$name")
-        ACTIONS+=("app:$cmd")
+    # RetroArch
+    if command -v retroarch >/dev/null; then
+        ITEMS+=($i "RetroArch")
+        ACTIONS+=("retroarch")
         ((i++))
-    done < <(detect_apps)
+    fi
 
     # Sessions
     while IFS='|' read -r name exec; do
@@ -311,22 +303,20 @@ while true; do
         ((i++))
     done < <(detect_sessions)
 
-    # System
-    ITEMS+=(
-        $i "Shell"
-        $((i+1)) "Reboot"
-        $((i+2)) "Shutdown"
-    )
+    # Basics
+    ITEMS+=($i "Terminal" $((i+1)) "Reboot" $((i+2)) "Shutdown")
     ACTIONS+=("shell" "reboot" "shutdown")
 
-    CHOICE=$($DIALOG --menu "Simple Game Boot" 20 70 15 \
-        "${ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 0
+    SYSINFO=$(get_system_info)
+    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | version 0.0.2| $SYSINFO" --menu "Select Action" 20 60 10 "${ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 0
 
     ACTION="${ACTIONS[$((CHOICE-1))]}"
 
-    kill "$MAPPER_PID" 2>/dev/null || true
-
     case "$ACTION" in
+        steam:*)
+            pkill -f ps3_to_keys.py || true
+            xinit ${ACTION#steam:} -bigpicture -- :0
+            ;;
         retroarch)
             kill $MAPPER_PID 2>/dev/null
             retroarch -f || read -p "Error starting RetroArch"
@@ -341,18 +331,11 @@ while true; do
             onboard &
             startx
             ;;
-        reboot)
-            systemctl reboot || sudo reboot
-            ;;
-        shutdown)
-            systemctl poweroff || sudo shutdown now
-            ;;
+        shell) clear; bash; ;;
+        reboot) sudo reboot ;;
+        shutdown) sudo shutdown now ;;
     esac
-
-    "$MAPPER" &
-    MAPPER_PID=$!
 done
-
 EOF
 sudo chmod +x "$BOOTMENU"
 
@@ -388,7 +371,7 @@ echo -e "${GREEN}Boot Menu installation complete.${NC}"
 # 7. RETROARCH CONFIG & CORES
 # -------------------------------
 echo -e "${YELLOW}Setting up RetroArch config and downloading cores...${NC}"
-cp conf/ $HOME/.config/
+cp .conf/ $HOME/.config/
 
 cd "$HOME/.config/retroarch/cores/"
 wget -r -np -nd -R "index.html*" https://buildbot.libretro.com/nightly/linux/x86_64/latest/
@@ -420,11 +403,13 @@ cd "$HOME/.config/retroarch/cores"
 wget -r -np -nd -R "index.html*" https://buildbot.libretro.com/nightly/linux/x86_64/latest/
 unzip -o "*.zip"
 rm *.zip 
-cp .conf/ .config/
+
+
+
 echo -e "${GREEN}DONE! Setup complete.${NC}"
 echo "1. Your user was added to the 'input' group for the controller mapper."
 echo "2. Please reboot for all group changes and autologin to take effect."#
-echo "3. remove login manager
+echo "3.this script may disable the login manager
     - For GDM (GNOME): sudo systemctl disable gdm
     - For SDDM (KDE): sudo systemctl disable sddm
     - For LightDM: sudo systemctl disable lightdm"
