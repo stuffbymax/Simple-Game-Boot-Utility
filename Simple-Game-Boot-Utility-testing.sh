@@ -336,6 +336,9 @@ while true; do
             echo "exec ${ACTION#session:}" > "$HOME/.xinitrc"
             startx || read -p "Error starting Desktop"
             $MAPPER & MAPPER_PID=$!
+            antimicrox --hidden &
+            onboard &
+            startx
             ;;
         reboot)
             systemctl reboot || sudo reboot
