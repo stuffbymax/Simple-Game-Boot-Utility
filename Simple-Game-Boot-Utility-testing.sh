@@ -354,12 +354,11 @@ while true; do
             ;;
         session:*)
             kill $MAPPER_PID 2>/dev/null
+            antimicrox --hidden &
+            onboard &
             echo "exec ${ACTION#session:}" > "$HOME/.xinitrc"
             startx || read -p "Error starting Desktop"
             $MAPPER & MAPPER_PID=$!
-            antimicrox --hidden &
-            onboard &
-            startx
             ;;
         shell) clear; bash; ;;
         reboot) sudo reboot ;;
