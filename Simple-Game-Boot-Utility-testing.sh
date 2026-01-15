@@ -174,13 +174,17 @@ launch_x() {
     local cmd="$1"
     cat > "$TMP_XINIT" <<EOF
 #!/usr/bin/env bash
+# Only launch antimicrox if not RetroArch
 [[ "$cmd" != retroarch* ]] && antimicrox --hidden &
 onboard &
 exec $cmd
-EOF
+
     chmod +x "$TMP_XINIT"
     startx "$TMP_XINIT" -- :0
 }
+EOF
+# Controller mapper
+
 
 "$MAPPER" & MAPPER_PID=$!
 trap 'kill $MAPPER_PID 2>/dev/null' EXIT
