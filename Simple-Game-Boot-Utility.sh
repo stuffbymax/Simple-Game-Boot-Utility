@@ -220,6 +220,7 @@ while true; do
             echo "exec ${ACTION#session:}" > "$HOME/.xinitrc"
             antimicrox --hidden &
             onboard &
+            pkill -f ps3_to_keys.py || true
             startx
             ;;
         shell)
