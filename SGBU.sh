@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+#created BY marinP/stuffbymax
+#description: a tool that allows user to use gamepad as keyboard
+#License MIT
+# version 0.0.3
 set -euo pipefail
 
 # -------------------------------
