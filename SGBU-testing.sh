@@ -483,6 +483,11 @@ if command -v rfkill >/dev/null; then
     sudo rfkill unblock bluetooth 2>/dev/null || true
 fi
 
+# Ensure Bluetooth service is enabled and started
+sudo systemctl enable bluetooth.service
+sudo systemctl start bluetooth.service
+
+
 # Configure Bluetooth Agent (Legacy pairing support)
 if command -v bluetoothctl >/dev/null; then
     # This ensures controllers pair without PIN errors
@@ -515,6 +520,8 @@ if command -v wget >/dev/null; then
     for z in *.zip; do [ -f "$z" ] && unzip -o "$z" && rm "$z"; done
     cd - >/dev/null
 fi
+
+
 
 # -------------------------------
 # 10. FINAL INSTRUCTIONS
