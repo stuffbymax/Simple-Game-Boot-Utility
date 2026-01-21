@@ -69,7 +69,6 @@ Boot menu will appear automatically on TTY1 after reboot, showing **all detected
 | `$HOME/.config/autostart/`      | XFCE4 autostart entries (AntimicroX + Onboard)    |
 | `$HOME/.twm/startup`            | TWM autostart script                              |
 | `$HOME/.twm/colors`             | TWM color configuration                           |
-| `$HOME/.twm/twmrc`              | TWM main configuration                            |
 | `.config/retroarch/cores/`      | Downloaded RetroArch cores                        |
 
 ---
