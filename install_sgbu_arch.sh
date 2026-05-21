@@ -361,7 +361,7 @@ while true; do
     case "$ACTION" in
         steam:*)
             [ -n "${MAPPER_PID:-}" ] && kill $MAPPER_PID 2>/dev/null
-            xinit ${ACTION#steam:} -bigpicture -- :0 vt"${XDG_VTNR:-1}" 2>&1 | tee -a "$HOME/steam.log"
+            xinit ${ACTION#steam:} -bigpicture -fullscreen -- :0 vt"${XDG_VTNR:-1}" 2>&1 | tee -a "$HOME/steam.log"
             [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
             ;;
         steam_normal:*)
