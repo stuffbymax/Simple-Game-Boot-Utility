@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # created BY marinP/stuffbymax (Arch-only fork)
 # description: Installer script for Simple Game Boot Utility (SGBU) - Arch Linux Edition
-# License MIT
-# version 0.0.4.0 - Arch-only, Steam + Vulkan driver selection
+# License: MIT
+# version 0.0.5.0 - GamepadUI, Arch-only, Steam + Vulkan driver selection
 set -euo pipefail
 
 # -------------------------------
@@ -24,10 +24,10 @@ NC='\033[0m'
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo -e "${CYAN}================================================"
-echo -e "   Simple Game Boot INSTALLER v0.0.4 (Arch)"
+echo -e "   Simple Game Boot INSTALLER v0.0.5 (Arch)"
 echo -e "================================================${NC}"
 echo "Target: Arch Linux only"
-echo "Includes: Steam, Vulkan driver selection, Bluetooth, Controller Mapping"
+echo "Includes: Steam (GamepadUI), Vulkan driver selection, Bluetooth, Controller Mapping"
 echo ""
 
 # -------------------------------
@@ -112,7 +112,7 @@ case "$VULKAN_CHOICE" in
 esac
 
 # -------------------------------
-# 2. ENABLE MULTILIB (required for Steam + 32-bit Vulkan)
+# 2. ENABLE MULTILIB
 # -------------------------------
 echo -e "${YELLOW}Enabling multilib repository (required for Steam)...${NC}"
 if ! grep -q '^\[multilib\]' /etc/pacman.conf; then
@@ -189,73 +189,343 @@ sudo tee "$PS3_PYTHON" >/dev/null << 'EOF'
 #!/usr/bin/env python3
 '''
 created BY marinP/stuffbymax
-description: a tool that allows user to use gamepad as keyboard
-License MIT
+description: Gamepad to keyboard mapper - supports PS3, PS4, PS5, Xbox 360, Xbox One, Xbox Series X/S
+License: MIT
+version: 0.0.4
 '''
+
 import evdev
 import uinput
 import sys
+import time
 
-def find_controller():
-    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
-    for device in devices:
-        if evdev.ecodes.EV_KEY in device.capabilities():
-            return device
-    print("No controller found.")
-    sys.exit(1)
-
-try:
-    device = find_controller()
-    print(f"Using device: {device.path} ({device.name})")
-except Exception as e:
-    print(f"Error finding controller: {e}")
-    sys.exit(1)
-
-events = [
-    uinput.KEY_ENTER, uinput.KEY_ESC, uinput.KEY_BACKSPACE, uinput.KEY_SPACE,
-    uinput.KEY_UP, uinput.KEY_DOWN, uinput.KEY_LEFT, uinput.KEY_RIGHT
+# -------------------------------
+# KNOWN CONTROLLER NAMES
+# -------------------------------
+KNOWN_CONTROLLERS = [
+    # PlayStation
+    "sony",
+    "playstation",
+    "dualshock",
+    "dualsense",
+    "sixaxis",
+    "ps3",
+    "ps4",
+    "ps5",
+    "wireless controller",
+    # Xbox
+    "xbox",
+    "microsoft",
+    "x-box",
+    "xinput",
+    "360 pad",
+    "xbox 360",
+    "xbox one",
+    "xbox series",
+    # Generic
+    "gamepad",
+    "joystick",
 ]
 
-try:
-    ui = uinput.Device(events)
-except Exception as e:
-    print(f"Error creating uinput device: {e}")
-    sys.exit(1)
+# Sub-devices to skip
+EXCLUDE_NAMES = [
+    "touchpad",
+    "motion",
+    "accelerometer",
+    "gyro",
+    "sensor",
+    "rumble",
+    "battery",
+]
 
-BTN_MAP_COMMON = {
-    304: uinput.KEY_ENTER,
-    305: uinput.KEY_ESC,
-    307: uinput.KEY_BACKSPACE,
-    308: uinput.KEY_SPACE,
-    544: uinput.KEY_UP,
-    545: uinput.KEY_DOWN,
-    546: uinput.KEY_LEFT,
-    547: uinput.KEY_RIGHT
+# -------------------------------
+# BUTTON MAPS
+# -------------------------------
+
+# PS3 DualShock 3 / Sixaxis
+BTN_MAP_PS3 = {
+    304: uinput.KEY_ENTER,      # Cross
+    305: uinput.KEY_ESC,        # Circle
+    307: uinput.KEY_SPACE,      # Square
+    308: uinput.KEY_BACKSPACE,  # Triangle
+    544: uinput.KEY_UP,         # D-pad Up
+    545: uinput.KEY_DOWN,       # D-pad Down
+    546: uinput.KEY_LEFT,       # D-pad Left
+    547: uinput.KEY_RIGHT,      # D-pad Right
+    310: uinput.KEY_TAB,        # L1
+    311: uinput.KEY_F1,         # R1
+    312: uinput.KEY_F2,         # L2
+    313: uinput.KEY_F3,         # R2
+    314: uinput.KEY_F4,         # Select
+    315: uinput.KEY_F5,         # Start
+    316: uinput.KEY_F6,         # PS Button
+    317: uinput.KEY_F7,         # L3
+    318: uinput.KEY_F8,         # R3
 }
 
-try:
-    device.grab()
-    print("Controller grabbed. Press Ctrl+C to stop.")
-    for event in device.read_loop():
-        if event.type == evdev.ecodes.EV_KEY:
-            key = BTN_MAP_COMMON.get(event.code)
-            if key is not None:
-                ui.emit(key, event.value)
-        elif event.type == evdev.ecodes.EV_ABS:
-            if event.code == evdev.ecodes.ABS_HAT0Y:
-                if event.value == -1:
-                    ui.emit(uinput.KEY_UP, 1); ui.emit(uinput.KEY_UP, 0)
-                elif event.value == 1:
-                    ui.emit(uinput.KEY_DOWN, 1); ui.emit(uinput.KEY_DOWN, 0)
-            elif event.code == evdev.ecodes.ABS_HAT0X:
-                if event.value == -1:
-                    ui.emit(uinput.KEY_LEFT, 1); ui.emit(uinput.KEY_LEFT, 0)
-                elif event.value == 1:
-                    ui.emit(uinput.KEY_RIGHT, 1); ui.emit(uinput.KEY_RIGHT, 0)
-except KeyboardInterrupt:
-    pass
-finally:
-    device.ungrab()
+# PS4 DualShock 4
+BTN_MAP_PS4 = {
+    304: uinput.KEY_ENTER,      # Cross
+    305: uinput.KEY_ESC,        # Circle
+    307: uinput.KEY_SPACE,      # Square
+    308: uinput.KEY_BACKSPACE,  # Triangle
+    310: uinput.KEY_TAB,        # L1
+    311: uinput.KEY_F1,         # R1
+    312: uinput.KEY_F2,         # L2
+    313: uinput.KEY_F3,         # R2
+    314: uinput.KEY_F4,         # Share
+    315: uinput.KEY_F5,         # Options
+    316: uinput.KEY_F6,         # PS Button
+    317: uinput.KEY_F7,         # L3
+    318: uinput.KEY_F8,         # R3
+    319: uinput.KEY_F9,         # Touchpad click
+}
+
+# PS5 DualSense
+BTN_MAP_PS5 = {
+    304: uinput.KEY_ENTER,      # Cross
+    305: uinput.KEY_ESC,        # Circle
+    307: uinput.KEY_SPACE,      # Square
+    308: uinput.KEY_BACKSPACE,  # Triangle
+    310: uinput.KEY_TAB,        # L1
+    311: uinput.KEY_F1,         # R1
+    312: uinput.KEY_F2,         # L2
+    313: uinput.KEY_F3,         # R2
+    314: uinput.KEY_F4,         # Create
+    315: uinput.KEY_F5,         # Options
+    316: uinput.KEY_F6,         # PS Button
+    317: uinput.KEY_F7,         # L3
+    318: uinput.KEY_F8,         # R3
+    319: uinput.KEY_F9,         # Touchpad click
+    320: uinput.KEY_F10,        # Mute
+}
+
+# Xbox 360 (xpad kernel driver)
+# Note: D-pad comes through as ABS_HAT0X/Y, not buttons
+BTN_MAP_XBOX360 = {
+    304: uinput.KEY_ENTER,      # A
+    305: uinput.KEY_ESC,        # B
+    307: uinput.KEY_SPACE,      # X
+    308: uinput.KEY_BACKSPACE,  # Y
+    310: uinput.KEY_TAB,        # LB
+    311: uinput.KEY_F1,         # RB
+    314: uinput.KEY_F4,         # Back
+    315: uinput.KEY_F5,         # Start
+    316: uinput.KEY_F6,         # Xbox/Guide button
+    317: uinput.KEY_F7,         # Left stick click (LS)
+    318: uinput.KEY_F8,         # Right stick click (RS)
+}
+
+# Xbox One (xpad / xone kernel driver)
+BTN_MAP_XBOXONE = {
+    304: uinput.KEY_ENTER,      # A
+    305: uinput.KEY_ESC,        # B
+    307: uinput.KEY_SPACE,      # X
+    308: uinput.KEY_BACKSPACE,  # Y
+    310: uinput.KEY_TAB,        # LB
+    311: uinput.KEY_F1,         # RB
+    314: uinput.KEY_F4,         # View (Back)
+    315: uinput.KEY_F5,         # Menu (Start)
+    316: uinput.KEY_F6,         # Xbox/Guide button
+    317: uinput.KEY_F7,         # LS
+    318: uinput.KEY_F8,         # RS
+    706: uinput.KEY_F9,         # Share button (Xbox One S/X only)
+}
+
+# Xbox Series X/S (xpad kernel driver, same as One but with extra buttons)
+BTN_MAP_XBOXSERIES = {
+    304: uinput.KEY_ENTER,      # A
+    305: uinput.KEY_ESC,        # B
+    307: uinput.KEY_SPACE,      # X
+    308: uinput.KEY_BACKSPACE,  # Y
+    310: uinput.KEY_TAB,        # LB
+    311: uinput.KEY_F1,         # RB
+    314: uinput.KEY_F4,         # View
+    315: uinput.KEY_F5,         # Menu
+    316: uinput.KEY_F6,         # Xbox/Guide button
+    317: uinput.KEY_F7,         # LS
+    318: uinput.KEY_F8,         # RS
+    706: uinput.KEY_F9,         # Share
+    167: uinput.KEY_F10,        # Share (alternate code)
+}
+
+# -------------------------------
+# CONTROLLER DETECTION
+# -------------------------------
+def find_controller():
+    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+
+    # First pass: known controller names, excluding sub-devices
+    for device in devices:
+        name_lower = device.name.lower()
+        if any(k in name_lower for k in KNOWN_CONTROLLERS):
+            if any(ex in name_lower for ex in EXCLUDE_NAMES):
+                print(f"[SGBU] Skipping sub-device: {device.name}")
+                continue
+            caps = device.capabilities()
+            if evdev.ecodes.EV_KEY in caps:
+                return device
+
+    # Second pass: any gamepad-like device, excluding sub-devices
+    for device in devices:
+        name_lower = device.name.lower()
+        if any(ex in name_lower for ex in EXCLUDE_NAMES):
+            continue
+        caps = device.capabilities()
+        if evdev.ecodes.EV_KEY in caps and evdev.ecodes.EV_ABS in caps:
+            keys = caps[evdev.ecodes.EV_KEY]
+            if len(keys) >= 8:
+                return device
+
+    return None
+
+def detect_controller_type(device):
+    name_lower = device.name.lower()
+
+    # PlayStation
+    if "dualsense" in name_lower or "ps5" in name_lower:
+        print("[SGBU] Detected: PS5 DualSense")
+        return "ps5", BTN_MAP_PS5
+    elif "dualshock 4" in name_lower or "ps4" in name_lower or "wireless controller" in name_lower:
+        print("[SGBU] Detected: PS4 DualShock 4")
+        return "ps4", BTN_MAP_PS4
+    elif "ps3" in name_lower or "dualshock 3" in name_lower or "sixaxis" in name_lower:
+        print("[SGBU] Detected: PS3 DualShock 3 / Sixaxis")
+        return "ps3", BTN_MAP_PS3
+
+    # Xbox
+    elif "series" in name_lower or "xbox series" in name_lower:
+        print("[SGBU] Detected: Xbox Series X/S")
+        return "xboxseries", BTN_MAP_XBOXSERIES
+    elif "xbox one" in name_lower or "xbone" in name_lower:
+        print("[SGBU] Detected: Xbox One")
+        return "xboxone", BTN_MAP_XBOXONE
+    elif "xbox 360" in name_lower or "360 pad" in name_lower or "xinput" in name_lower:
+        print("[SGBU] Detected: Xbox 360")
+        return "xbox360", BTN_MAP_XBOX360
+    elif "xbox" in name_lower or "microsoft" in name_lower or "x-box" in name_lower:
+        # Generic Xbox fallback — use Xbox One map
+        print(f"[SGBU] Detected: Xbox (generic) — using Xbox One map")
+        return "xboxone", BTN_MAP_XBOXONE
+
+    else:
+        print(f"[SGBU] Unknown controller '{device.name}', using PS4 button map")
+        return "ps4", BTN_MAP_PS4
+
+# -------------------------------
+# ANALOG STICK DPAD EMULATION
+# -------------------------------
+AXIS_THRESHOLD = 16000  # out of 32767
+
+stick_state = {
+    "left_x": 0,
+    "left_y": 0,
+}
+
+def handle_analog(ui, code, value):
+    """Emulate D-pad from left analog stick."""
+    if code == evdev.ecodes.ABS_X:
+        stick_state["left_x"] = value
+    elif code == evdev.ecodes.ABS_Y:
+        stick_state["left_y"] = value
+    else:
+        return
+
+    lx = stick_state["left_x"]
+    ly = stick_state["left_y"]
+
+    if lx < -AXIS_THRESHOLD:
+        ui.emit(uinput.KEY_LEFT, 1); ui.emit(uinput.KEY_LEFT, 0)
+    elif lx > AXIS_THRESHOLD:
+        ui.emit(uinput.KEY_RIGHT, 1); ui.emit(uinput.KEY_RIGHT, 0)
+
+    if ly < -AXIS_THRESHOLD:
+        ui.emit(uinput.KEY_UP, 1); ui.emit(uinput.KEY_UP, 0)
+    elif ly > AXIS_THRESHOLD:
+        ui.emit(uinput.KEY_DOWN, 1); ui.emit(uinput.KEY_DOWN, 0)
+
+def handle_hat(ui, code, value):
+    """Handle D-pad HAT axis (all Xbox controllers + PS3, some PS4)."""
+    if code == evdev.ecodes.ABS_HAT0Y:
+        if value == -1:
+            ui.emit(uinput.KEY_UP, 1); ui.emit(uinput.KEY_UP, 0)
+        elif value == 1:
+            ui.emit(uinput.KEY_DOWN, 1); ui.emit(uinput.KEY_DOWN, 0)
+    elif code == evdev.ecodes.ABS_HAT0X:
+        if value == -1:
+            ui.emit(uinput.KEY_LEFT, 1); ui.emit(uinput.KEY_LEFT, 0)
+        elif value == 1:
+            ui.emit(uinput.KEY_RIGHT, 1); ui.emit(uinput.KEY_RIGHT, 0)
+
+# -------------------------------
+# MAIN
+# -------------------------------
+def main():
+    print("[SGBU] Controller mapper v0.0.4 starting...")
+    print("[SGBU] Supports: PS3 / PS4 / PS5 / Xbox 360 / Xbox One / Xbox Series X|S")
+
+    device = None
+    for attempt in range(10):
+        device = find_controller()
+        if device:
+            break
+        print(f"[SGBU] No controller found, retrying ({attempt+1}/10)...")
+        time.sleep(2)
+
+    if not device:
+        print("[SGBU] No controller found after retries. Exiting.")
+        sys.exit(1)
+
+    print(f"[SGBU] Using: {device.path} — {device.name}")
+
+    ctrl_type, btn_map = detect_controller_type(device)
+
+    events = [
+        uinput.KEY_ENTER, uinput.KEY_ESC, uinput.KEY_BACKSPACE, uinput.KEY_SPACE,
+        uinput.KEY_UP, uinput.KEY_DOWN, uinput.KEY_LEFT, uinput.KEY_RIGHT,
+        uinput.KEY_TAB,
+        uinput.KEY_F1, uinput.KEY_F2, uinput.KEY_F3, uinput.KEY_F4,
+        uinput.KEY_F5, uinput.KEY_F6, uinput.KEY_F7, uinput.KEY_F8,
+        uinput.KEY_F9, uinput.KEY_F10,
+    ]
+
+    try:
+        ui = uinput.Device(events)
+    except Exception as e:
+        print(f"[SGBU] Failed to create uinput device: {e}")
+        print("[SGBU] Make sure uinput module is loaded: sudo modprobe uinput")
+        sys.exit(1)
+
+    try:
+        device.grab()
+        print(f"[SGBU] Controller grabbed ({ctrl_type} mode). Press Ctrl+C to stop.")
+
+        for event in device.read_loop():
+            if event.type == evdev.ecodes.EV_KEY:
+                key = btn_map.get(event.code)
+                if key is not None:
+                    ui.emit(key, event.value)
+
+            elif event.type == evdev.ecodes.EV_ABS:
+                # HAT D-pad (Xbox always, PS3/some PS4)
+                if event.code in (evdev.ecodes.ABS_HAT0X, evdev.ecodes.ABS_HAT0Y):
+                    handle_hat(ui, event.code, event.value)
+                # Analog stick left stick emulation
+                elif event.code in (evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y):
+                    handle_analog(ui, event.code, event.value)
+
+    except KeyboardInterrupt:
+        print("\n[SGBU] Mapper stopped.")
+    except Exception as e:
+        print(f"[SGBU] Error: {e}")
+    finally:
+        try:
+            device.ungrab()
+        except Exception:
+            pass
+
+if __name__ == "__main__":
+    main()
 EOF
 sudo chmod +x "$PS3_PYTHON"
 
@@ -263,7 +533,7 @@ sudo chmod +x "$PS3_PYTHON"
 # 8. BOOT MENU
 # -------------------------------
 echo -e "${YELLOW}Creating Boot Menu...${NC}"
-sudo tee "$BOOTMENU" >/dev/null << 'EOF'
+sudo tee "$BOOTMENU" >/dev/null << 'BOOTMENU_EOF'
 #!/usr/bin/env bash
 
 RED='\033[0;31m'
@@ -298,7 +568,114 @@ get_system_info() {
     echo "Mem: $mem"
 }
 
+launch_steam_xinitrc() {
+    local steam_flag="$1"
+
+    pkill -f ps3_to_keys.py || true
+
+    mkdir -p "$HOME/.config/openbox"
+    cat > "$HOME/.config/openbox/rc.xml" <<'OBCONF'
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc"
+                xmlns:xi="http://www.w3.org/2001/XInclude">
+
+  <resistance>
+    <strength>10</strength>
+    <screen_edge_strength>20</screen_edge_strength>
+  </resistance>
+
+  <focus>
+    <focusNew>yes</focusNew>
+    <followMouse>no</followMouse>
+    <focusLast>yes</focusLast>
+    <underMouse>no</underMouse>
+    <focusDelay>200</focusDelay>
+    <raiseOnFocus>no</raiseOnFocus>
+  </focus>
+
+  <desktops>
+    <number>1</number>
+    <firstdesk>1</firstdesk>
+    <names><name>Steam</name></names>
+    <popupTime>0</popupTime>
+  </desktops>
+
+  <theme>
+    <keepBorder>no</keepBorder>
+  </theme>
+
+  <applications>
+    <!-- Force Steam GamepadUI fullscreen, no borders, no titlebar -->
+    <application class="steam" name="steam">
+      <decor>no</decor>
+      <fullscreen>yes</fullscreen>
+      <maximized>yes</maximized>
+      <layer>normal</layer>
+      <focus>yes</focus>
+    </application>
+    <!-- Catch any other Steam windows (e.g. updates, popups) -->
+    <application class="*">
+      <decor>no</decor>
+      <maximized>yes</maximized>
+    </application>
+  </applications>
+
+  <!-- Disable right-click desktop menu -->
+  <menu>
+    <hideDelay>200</hideDelay>
+    <middle>no</middle>
+    <submenuShowDelay>100</submenuShowDelay>
+    <applicationIcons>no</applicationIcons>
+    <manageDesktops>no</manageDesktops>
+  </menu>
+
+</openbox_config>
+OBCONF
+
+    cat > "$HOME/.xinitrc" <<XINITRC
+#!/bin/sh
+
+# Disable screen blanking and power saving
+xset s off
+xset -dpms
+xset s noblank
+
+# Hide the cursor after 1 second of inactivity
+command -v unclutter >/dev/null && unclutter -idle 1 -root &
+
+# Environment
+export SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0
+export STEAM_FORCE_DESKTOPUI_SCALING=1
+export STEAM_GAMEPADUI=1
+
+# Force correct resolution
+if command -v xrandr >/dev/null; then
+    PRIMARY=\$(xrandr --query | awk '/ connected primary/ {print \$1; exit}')
+    [ -z "\$PRIMARY" ] && PRIMARY=\$(xrandr --query | awk '/ connected/ {print \$1; exit}')
+    if [ -n "\$PRIMARY" ]; then
+        MODE=\$(xrandr | awk '/\*/ {print \$1; exit}')
+        [ -n "\$MODE" ] && xrandr --output "\$PRIMARY" --mode "\$MODE"
+    fi
+fi
+
+# Start Openbox first, wait for it to be ready
+openbox &
+OB_PID=\$!
+sleep 1
+
+# Launch Steam under Openbox
+exec steam ${steam_flag}
+XINITRC
+
+    chmod +x "$HOME/.xinitrc"
+    startx -- :0 vt"${XDG_VTNR:-1}" 2>&1 | tee -a "$HOME/steam.log"
+
+    # Restart mapper after Steam exits
+    [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
+}
+
 # Start mapper
+MAPPER_PID=""
 if [ -x "$MAPPER" ]; then
     $MAPPER &
     MAPPER_PID=$!
@@ -318,8 +695,8 @@ while true; do
 
     STEAM=$(detect_steam || true)
     if [ -n "$STEAM" ]; then
-        ITEMS+=($i "Steam (Big Picture)")
-        ACTIONS+=("steam:$STEAM")
+        ITEMS+=($i "Steam (GamepadUI)")
+        ACTIONS+=("steam_gamepadui:$STEAM")
         ((i++))
 
         ITEMS+=($i "Steam (Normal Mode)")
@@ -353,48 +730,64 @@ while true; do
     ACTIONS+=("shutdown")
 
     SYSINFO=$(get_system_info)
-    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | v0.0.4-arch | $SYSINFO" \
+    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | v0.0.5-arch | $SYSINFO" \
         --menu "Select Action" 22 70 14 "${ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 0
 
     ACTION="${ACTIONS[$((CHOICE-1))]}"
 
     case "$ACTION" in
-        steam:*)
-            [ -n "${MAPPER_PID:-}" ] && kill $MAPPER_PID 2>/dev/null
-            xinit ${ACTION#steam:} -bigpicture -fullscreen -- :0 vt"${XDG_VTNR:-1}" 2>&1 | tee -a "$HOME/steam.log"
+        steam_gamepadui:*)
+            [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
+            STEAM_BIN="${ACTION#steam_gamepadui:}"
+            launch_steam_xinitrc "-gamepadui" "-fullscreen" "$STEAM_BIN"
             [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
             ;;
+
         steam_normal:*)
-            [ -n "${MAPPER_PID:-}" ] && kill $MAPPER_PID 2>/dev/null
-            xinit ${ACTION#steam_normal:} -- :0 vt"${XDG_VTNR:-1}" 2>&1 | tee -a "$HOME/steam.log"
+            [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
+            STEAM_BIN="${ACTION#steam_normal:}"
+            launch_steam_xinitrc "" "-fullscreen" "$STEAM_BIN"
             [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
             ;;
+
         retroarch)
-            [ -n "${MAPPER_PID:-}" ] && kill $MAPPER_PID 2>/dev/null
+            [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
             retroarch -f 2>&1 | tee -a "$HOME/retroarch.log"
             [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
             ;;
-        bluetooth)
-            [ -n "${MAPPER_PID:-}" ] && kill $MAPPER_PID 2>/dev/null
-            clear
-            if command -v bluetoothctl >/dev/null; then
-                echo -e "${CYAN}--- Bluetooth Manager ---${NC}"
-                echo "1. Put your controller in pairing mode."
-                echo "2. Type 'scan on' to discover devices."
-                echo "3. Type 'pair <MAC>' to pair."
-                echo "4. Type 'trust <MAC>' to auto-connect later."
-                echo "5. Type 'connect <MAC>' to connect now."
-                echo "6. Type 'exit' to return to menu."
-                echo ""
-                bluetoothctl
-            else
-                echo -e "${RED}bluetoothctl not found. Is BlueZ installed?${NC}"
-                read -rp "Press Enter..."
-            fi
-            [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
-            ;;
+
+bluetooth)
+    [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
+
+    if command -v blueman-manager >/dev/null; then
+        # Launch Openbox + blueman if no display is running
+        if [ -z "${DISPLAY:-}" ]; then
+            cat > "$HOME/.xinitrc.bt" <<'BTRC'
+#!/bin/sh
+xset s off
+xset -dpms
+openbox &
+sleep 0.5
+blueman-manager
+# Return to menu when window is closed
+BTRC
+            chmod +x "$HOME/.xinitrc.bt"
+            xinit "$HOME/.xinitrc.bt" -- :0 vt"${XDG_VTNR:-1}" 2>&1 | tee -a "$HOME/blueman.log"
+        else
+            # Display already running (e.g. called from within X session)
+            blueman-manager &
+            wait $!
+        fi
+    else
+        echo -e "${RED}blueman not found. Install with: sudo pacman -S blueman${NC}"
+        read -rp "Press Enter..."
+    fi
+
+    [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
+    ;;
+
         session:*)
-            [ -n "${MAPPER_PID:-}" ] && kill $MAPPER_PID 2>/dev/null
+            [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
             SESSION_EXEC="${ACTION#session:}"
             cat > "$HOME/.xinitrc" << XINITRC
 #!/bin/bash
@@ -408,21 +801,24 @@ XINITRC
             startx 2>&1 | tee -a "$HOME/xsession.log"
             [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
             ;;
+
         shell)
             clear
             echo -e "${CYAN}Entering shell. Type 'exit' to return.${NC}"
             bash
             ;;
+
         diagnostic)
             clear
             [ -x /usr/local/bin/diagnostic.sh ] && /usr/local/bin/diagnostic.sh || echo "Diagnostic not found"
             read -rp "Press Enter to continue..."
             ;;
-        reboot) sudo reboot ;;
+
+        reboot)  sudo reboot ;;
         shutdown) sudo shutdown now ;;
     esac
 done
-EOF
+BOOTMENU_EOF
 sudo chmod +x "$BOOTMENU"
 
 # -------------------------------
@@ -458,6 +854,9 @@ fi
 echo -e "\n${CYAN}[Steam]${NC}"
 if command -v steam >/dev/null || [ -x "$HOME/.steam/steam/steam.sh" ]; then
     echo -e "${GREEN}✓${NC} Steam found"
+    # Check if GamepadUI is supported (Steam >= ~2022)
+    STEAM_VER=$(steam --version 2>/dev/null | grep -oP '\d+\.\d+' | head -n1 || echo "unknown")
+    echo -e "${GREEN}✓${NC} Steam version: $STEAM_VER"
 else
     echo -e "${RED}✗${NC} Steam not found"
 fi
@@ -490,6 +889,14 @@ if ls /dev/input/event* >/dev/null 2>&1; then
     echo -e "${GREEN}✓${NC} $COUNT input device(s) detected"
 else
     echo -e "${RED}✗${NC} No input devices found"
+fi
+
+# GamepadUI check
+echo -e "\n${CYAN}[GamepadUI]${NC}"
+if steam --help 2>&1 | grep -q 'gamepadui' 2>/dev/null; then
+    echo -e "${GREEN}✓${NC} -gamepadui flag supported"
+else
+    echo -e "${YELLOW}!${NC} Could not verify -gamepadui flag (Steam may still support it)"
 fi
 
 echo -e "\n${CYAN}Done.${NC}"
@@ -561,12 +968,12 @@ echo -e "\n${CYAN}================================================"
 echo -e "   INSTALLATION COMPLETE"
 echo -e "================================================${NC}"
 echo -e "${GREEN}✓${NC} Boot menu:   $BOOTMENU"
-echo -e "${GREEN}✓${NC} Steam:       installed"
+echo -e "${GREEN}✓${NC} Steam:       installed (GamepadUI enabled)"
 echo -e "${GREEN}✓${NC} Vulkan:      choice applied (option $VULKAN_CHOICE)"
 echo -e "${GREEN}✓${NC} Bluetooth:   enabled & started"
 echo ""
 echo -e "${YELLOW}IMPORTANT:${NC} You must REBOOT for group permissions to apply."
 echo "On next boot the menu will load automatically on TTY1."
-echo "Steam Big Picture and Normal Mode are both available in the menu."
+echo "Steam GamepadUI and Normal Mode are both available in the menu."
 echo ""
 read -r -p "Press Enter to finish..."
