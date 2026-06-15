@@ -38,7 +38,7 @@ This repository provides scripts to create an **automatic boot menu** on TTY1, i
 
 ## Prerequisites
 
-* Arch Linux (or derivatives)
+* Arch,debian,gentoo Linux (or derivatives)
 * `sudo` access
 * Python 3 with `evdev` and `uinput` modules
 
