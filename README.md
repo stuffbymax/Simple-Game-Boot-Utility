@@ -47,10 +47,10 @@ This repository provides scripts to create an **automatic boot menu** on TTY1, i
 ## Installation
 
 ```bash
-git clone https://github.com/stuffbymax/retro
-cd retro
-chmod +x setup_bootmenu.sh
-./setup_bootmenu.sh
+git clone https://github.com/stuffbymax/Simple-Game-Boot-Utility.git
+cd Simple-Game-Boot-Utility
+chmod +x SGBU.sh
+./SGBU.sh
 reboot
 ```
 
