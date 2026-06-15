@@ -25,8 +25,13 @@ NC='\033[0m'
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo -e "${CYAN}================================================"
-echo -e "   Simple Game Boot INSTALLER v0.0.6"
-echo -e "   Multi-Distro Edition"
+echo -e "  Simple Game Boot INSTALLER v0.0.6"
+echo -e "  Multi-Distro Edition"
+echo -e "  warning: This script modifies system files and installs packages."
+echo -e "  Please review the script before running."
+echo -e "  You need to install python3-evdev and python3-uinput manually for controller mapping to work Because those packages are form AUR and recently aur got pawned"
+echo -e "  install packages via AUR on your own risk"
+echo -e "  Supported distros: Arch Linux, Debian/Ubuntu, Gentoo"
 echo -e "================================================${NC}"
 echo "Includes: Steam (GamepadUI), Vulkan driver selection, Bluetooth, Controller Mapping"
 echo ""
