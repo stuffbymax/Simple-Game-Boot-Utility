@@ -556,20 +556,58 @@ detect_sessions() {
 }
 
 detect_steam() {
-    for steam_path in \
-        "$HOME/.steam/steam/steam.sh" \
-        "/usr/bin/steam" \
-        "/usr/games/steam" \
-        "/usr/lib/steam/steam.sh"; do
+    for steam_path in "$HOME/.steam/steam/steam.sh" "/usr/bin/steam" "/usr/games/steam"; do
         [ -x "$steam_path" ] && echo "$steam_path" && return 0
     done
     return 1
 }
 
 get_system_info() {
+    # 1. Memory Usage
     local mem
-    mem=$(free -h --si 2>/dev/null | awk '/^Mem:/ {print $3 "/" $2}')
-    echo "Mem: $mem"
+    mem=$(free -h --si 2>/dev/null | awk '/^Mem:/ {print $3 "/" $2}' | sed 's/i//g')
+
+    # 2. CPU Model (cleaned of extra spaces and trademarks)
+    local cpu
+    cpu=$(awk -F: '/^model name/ {print $2; exit}' /proc/cpuinfo | sed 's/^[ \t]*//;s/(R)//g;s/(TM)//g;s/  */ /g')
+    # Shorten CPU name if it's too long
+    cpu=$(echo "$cpu" | cut -c 1-20)
+
+    # 3. CPU Temperature (tries sensors, falls back to sysfs)
+    local temp="N/A"
+    if command -v sensors >/dev/null; then
+        temp=$(sensors 2>/dev/null | awk '/(Package id 0|Core 0|Tctl|temp1):/ {print $2; exit}' | tr -d '+')
+    elif [ -f /sys/class/thermal/thermal_zone0/temp ]; then
+        temp="$(($(cat /sys/class/thermal/thermal_zone0/temp) / 1000))°C"
+    fi
+
+    # 4. GPU Info (briefly identifies the driver/chip)
+    local gpu
+    gpu=$(lspci | grep -i 'vga\|display\|3d' | head -n1 | awk -F': ' '{print $2}' | awk '{print $1,$2}')
+
+    # 5. IP Address (Local)
+    local ip
+    ip=$(ip route get 1.1.1.1 | awk '{print $7; exit}')
+    [ -z "$ip" ] && ip="Offline"
+
+    # 6. Storage Usage (Root partition)
+    local disk
+    disk=$(df -h / | awk 'NR==2 {print $5}')
+
+    # 7. Battery (Optional - checks for BAT0 or BAT1)
+    local bat_str=""
+    if [ -d /sys/class/power_supply/BAT0 ] || [ -d /sys/class/power_supply/BAT1 ]; then
+        local bat_path="/sys/class/power_supply/BAT0"
+        [ ! -d "$bat_path" ] && bat_path="/sys/class/power_supply/BAT1"
+        local cap=$(cat "$bat_path/capacity" 2>/dev/null)
+        local stat=$(cat "$bat_path/status" 2>/dev/null)
+        # Simplify status (Charging -> CHG, Discharging -> DIS)
+        [ "$stat" == "Charging" ] && stat="+" || stat="-"
+        bat_str=" | Bat: $cap% [$stat]"
+    fi
+
+    # Return a single line for the Dialog Backtitle
+    echo "CPU: $cpu ($temp) | Mem: $mem | Disk: $disk | IP: $ip$bat_str"
 }
 
 launch_steam_xinitrc() {
@@ -582,10 +620,12 @@ launch_steam_xinitrc() {
 <?xml version="1.0" encoding="UTF-8"?>
 <openbox_config xmlns="http://openbox.org/3.4/rc"
                 xmlns:xi="http://www.w3.org/2001/XInclude">
+
   <resistance>
     <strength>10</strength>
     <screen_edge_strength>20</screen_edge_strength>
   </resistance>
+
   <focus>
     <focusNew>yes</focusNew>
     <followMouse>no</followMouse>
@@ -594,16 +634,20 @@ launch_steam_xinitrc() {
     <focusDelay>200</focusDelay>
     <raiseOnFocus>no</raiseOnFocus>
   </focus>
+
   <desktops>
     <number>1</number>
     <firstdesk>1</firstdesk>
     <names><name>Steam</name></names>
     <popupTime>0</popupTime>
   </desktops>
+
   <theme>
     <keepBorder>no</keepBorder>
   </theme>
+
   <applications>
+    <!-- Force Steam GamepadUI fullscreen, no borders, no titlebar -->
     <application class="steam" name="steam">
       <decor>no</decor>
       <fullscreen>yes</fullscreen>
@@ -611,11 +655,14 @@ launch_steam_xinitrc() {
       <layer>normal</layer>
       <focus>yes</focus>
     </application>
+    <!-- Catch any other Steam windows (e.g. updates, popups) -->
     <application class="*">
       <decor>no</decor>
       <maximized>yes</maximized>
     </application>
   </applications>
+
+  <!-- Disable right-click desktop menu -->
   <menu>
     <hideDelay>200</hideDelay>
     <middle>no</middle>
@@ -623,18 +670,27 @@ launch_steam_xinitrc() {
     <applicationIcons>no</applicationIcons>
     <manageDesktops>no</manageDesktops>
   </menu>
+
 </openbox_config>
 OBCONF
 
     cat > "$HOME/.xinitrc" <<XINITRC
 #!/bin/sh
+
+# Disable screen blanking and power saving
 xset s off
 xset -dpms
 xset s noblank
+
+# Hide the cursor after 1 second of inactivity
 command -v unclutter >/dev/null && unclutter -idle 1 -root &
+
+# Environment
 export SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0
 export STEAM_FORCE_DESKTOPUI_SCALING=1
 export STEAM_GAMEPADUI=1
+
+# Force correct resolution
 if command -v xrandr >/dev/null; then
     PRIMARY=\$(xrandr --query | awk '/ connected primary/ {print \$1; exit}')
     [ -z "\$PRIMARY" ] && PRIMARY=\$(xrandr --query | awk '/ connected/ {print \$1; exit}')
@@ -643,17 +699,24 @@ if command -v xrandr >/dev/null; then
         [ -n "\$MODE" ] && xrandr --output "\$PRIMARY" --mode "\$MODE"
     fi
 fi
+
+# Start Openbox first, wait for it to be ready
 openbox &
 OB_PID=\$!
 sleep 1
+
+# Launch Steam under Openbox
 exec steam ${steam_flag}
 XINITRC
 
     chmod +x "$HOME/.xinitrc"
     startx -- :0 vt"${XDG_VTNR:-1}" 2>&1 | tee -a "$HOME/steam.log"
+
+    # Restart mapper after Steam exits
     [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
 }
 
+# Start mapper
 MAPPER_PID=""
 if [ -x "$MAPPER" ]; then
     $MAPPER &
@@ -677,6 +740,7 @@ while true; do
         ITEMS+=($i "Steam (GamepadUI)")
         ACTIONS+=("steam_gamepadui:$STEAM")
         ((i++))
+
         ITEMS+=($i "Steam (Normal Mode)")
         ACTIONS+=("steam_normal:$STEAM")
         ((i++))
@@ -708,7 +772,7 @@ while true; do
     ACTIONS+=("shutdown")
 
     SYSINFO=$(get_system_info)
-    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | v0.0.6-multiDistro | $SYSINFO" \
+    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | v0.0.5-arch | $SYSINFO" \
         --menu "Select Action" 22 70 14 "${ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 0
 
     ACTION="${ACTIONS[$((CHOICE-1))]}"
@@ -716,43 +780,54 @@ while true; do
     case "$ACTION" in
         steam_gamepadui:*)
             [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
-            launch_steam_xinitrc "-gamepadui -fullscreen"
+            STEAM_BIN="${ACTION#steam_gamepadui:}"
+            launch_steam_xinitrc "-gamepadui" "-fullscreen" "$STEAM_BIN"
             [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
             ;;
+
         steam_normal:*)
             [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
-            launch_steam_xinitrc "-fullscreen"
+            STEAM_BIN="${ACTION#steam_normal:}"
+            launch_steam_xinitrc "" "-fullscreen" "$STEAM_BIN"
             [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
             ;;
+
         retroarch)
             [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
             retroarch -f 2>&1 | tee -a "$HOME/retroarch.log"
             [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
             ;;
-        bluetooth)
-            [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
-            if command -v blueman-manager >/dev/null; then
-                if [ -z "${DISPLAY:-}" ]; then
-                    cat > "$HOME/.xinitrc.bt" <<'BTRC'
+
+bluetooth)
+    [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
+
+    if command -v blueman-manager >/dev/null; then
+        # Launch Openbox + blueman if no display is running
+        if [ -z "${DISPLAY:-}" ]; then
+            cat > "$HOME/.xinitrc.bt" <<'BTRC'
 #!/bin/sh
 xset s off
 xset -dpms
 openbox &
 sleep 0.5
 blueman-manager
+# Return to menu when window is closed
 BTRC
-                    chmod +x "$HOME/.xinitrc.bt"
-                    xinit "$HOME/.xinitrc.bt" -- :0 vt"${XDG_VTNR:-1}" 2>&1 | tee -a "$HOME/blueman.log"
-                else
-                    blueman-manager &
-                    wait $!
-                fi
-            else
-                echo -e "${RED}blueman not found.${NC}"
-                read -rp "Press Enter..."
-            fi
-            [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
-            ;;
+            chmod +x "$HOME/.xinitrc.bt"
+            xinit "$HOME/.xinitrc.bt" -- :0 vt"${XDG_VTNR:-1}" 2>&1 | tee -a "$HOME/blueman.log"
+        else
+            # Display already running (e.g. called from within X session)
+            blueman-manager &
+            wait $!
+        fi
+    else
+        echo -e "${RED}blueman not found. Install with: sudo pacman -S blueman${NC}"
+        read -rp "Press Enter..."
+    fi
+
+    [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
+    ;;
+
         session:*)
             [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
             SESSION_EXEC="${ACTION#session:}"
@@ -768,17 +843,20 @@ XINITRC
             startx 2>&1 | tee -a "$HOME/xsession.log"
             [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
             ;;
+
         shell)
             clear
             echo -e "${CYAN}Entering shell. Type 'exit' to return.${NC}"
             bash
             ;;
+
         diagnostic)
             clear
             [ -x /usr/local/bin/diagnostic.sh ] && /usr/local/bin/diagnostic.sh || echo "Diagnostic not found"
             read -rp "Press Enter to continue..."
             ;;
-        reboot)   sudo reboot ;;
+
+        reboot)  sudo reboot ;;
         shutdown) sudo shutdown now ;;
     esac
 done
