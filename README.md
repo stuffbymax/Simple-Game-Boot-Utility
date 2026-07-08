@@ -1,46 +1,69 @@
-Readme is made by AI
-# Boot Menu & Controller Mapper Setup
+# Simple Game Boot Utility (SGBU)
 
-This repository provides scripts to create an **automatic boot menu** on TTY1, integrate gamepad support, and configure lightweight desktop environments (IceWM, XFCE4, TWM) on **Arch Linux**.
+Scripts to create an **automatic boot menu** on TTY1, integrate gamepad support, and get Steam (GamepadUI) + RetroArch booting straight into a console-like experience — with Vulkan driver selection, Bluetooth setup, and bundled controller/emulator configs.
 
-> ⚠️ **Warning:** External files like AntimicroX profiles and RetroArch keybinds are not included. This is experimental — some settings may not apply automatically. Test in a disposable environment.
+> ⚠️ **Warning:** This is experimental and modifies system files (pacman/apt/emerge repos, autologin, udev rules, group memberships). Review the scripts before running them, and test in a disposable environment first.
+
+---
+
+## Which script do I run?
+
+| Script | Status | Notes |
+|---|---|---|
+| **`SGBU.sh`** | ✅ **Active — use this one** | Multi-distro installer. Supports **Arch Linux, Debian/Ubuntu, and Gentoo**. This is where new features land first. |
+| `install_sgbu_arch.sh` | 🟡 **Deprecated** | Arch-only installer. Being phased out in favor of `SGBU.sh` now that the multi-distro script has full feature parity. Still functional, but won't receive new features going forward. |
+| `SGBU-debian-testing.sh` / `SGBU-debian-old.sh` | 🗄️ **Deprecated / archived** | Early Debian-specific experiments, superseded by `SGBU.sh`. Kept in `old/` for reference only — do not use for new installs. |
+
+If you're starting fresh, **run `SGBU.sh`**.
 
 ---
 
 ## Features
 
-* **Automatic Boot Menu**
-  Detects available desktop sessions and applications such as RetroArch and Steam, then presents a menu on TTY1:
-
+* **Automatic Boot Menu** (`bootmenu.sh`, installed to `/usr/local/bin/`)
+  Auto-detects installed apps/sessions and shows a menu on TTY1:
   1. RetroArch (fullscreen)
-  2. Steam (if installed)
-  3. Detected desktop environments (IceWM, XFCE4, TWM, etc.)
-  4. Shell
-  5. Reboot
-  6. Shutdown
+  2. Steam — GamepadUI *and* Normal Mode (if installed)
+  3. Detected desktop sessions (Xorg/Wayland `.desktop` entries)
+  4. Bluetooth Manager
+  5. Terminal
+  6. Run Diagnostics
+  7. Reboot / Shutdown
+
+* **Multi-Distro Package Handling**
+  Detects Arch (`pacman`), Debian/Ubuntu (`apt-get`), or Gentoo (`emerge`) and installs the right package names for each — base tools, Vulkan drivers, and Steam.
+
+* **Vulkan Driver Selection**
+  Interactive menu to pick AMD (amdvlk or RADV/mesa), NVIDIA (proprietary or open kernel module), or Intel drivers at install time.
 
 * **Gamepad Support**
-  Python script maps PS3, PS4, Xbox, and generic controllers to keyboard keys.
+  `ps3_to_keys.py` maps PS3, PS4, PS5, Xbox 360/One/Series, and generic controllers to keyboard keys for menu navigation, with analog-stick D-pad emulation.
 
-* **Autostart Configurations**
+* **Bundled Configs (RetroArch / AntiMicroX)**
+  If you clone the full repo, the installer automatically deploys:
+  * `conf/retroarch` → `~/.config/retroarch` (existing `retroarch.cfg` is backed up, not overwritten silently)
+  * `conf/antimicrox` → `~/.config/antimicrox`
+  The boot menu then launches RetroArch with that config and AntiMicroX with the bundled controller profile automatically — no manual setup needed. If the `conf` folder isn't found next to the script, this step is skipped with a clear notice instead of failing.
 
-  * AntimicroX profiles for gamepad mapping
-  * Onboard on-screen keyboard for IceWM and XFCE4
-  * DE-specific autostart scripts
-
-* **Lightweight Desktop Environments**
-  IceWM, XFCE4, TWM with minimal menus and configs.
+* **PS4 Controller Bluetooth Fix**
+  Optional `ps4-fix.sh` reloads the `hid_sony` kernel module and walks you through pairing a DualShock 4 over Bluetooth (fixes touchpad/button issues). The installer asks if you want to run it (Arch-only for now, since it calls `pacman` directly).
 
 * **RetroArch Cores**
-  Automatically downloads latest cores for Linux x86_64.
+  Automatically downloads the latest nightly cores for Linux x86_64.
+
+* **Bluetooth & Autologin**
+  Enables and starts Bluetooth (systemd or OpenRC), configures TTY1 autologin, and disables conflicting display managers so the boot menu takes over.
+
+* **Diagnostics**
+  Built-in `diagnostic.sh` reports Vulkan/GPU, Steam, Bluetooth, Xorg, RetroArch, AntiMicroX profile, input devices, and init system status — useful for troubleshooting after install.
 
 ---
 
 ## Prerequisites
 
-* Arch,debian,gentoo Linux (or derivatives)
+* Arch Linux, Debian/Ubuntu, or Gentoo (or a close derivative)
 * `sudo` access
-* Python 3 with `evdev` and `uinput` modules
+* Python 3 with `evdev` and `uinput` modules (on Arch, install `python-evdev`/`python-uinput` manually if AUR access is unavailable)
 
 ---
 
@@ -54,53 +77,56 @@ chmod +x SGBU.sh
 reboot
 ```
 
-Boot menu will appear automatically on TTY1 after reboot, showing **all detected sessions and supported applications**.
+Run it **from inside the cloned repo** — the installer looks for `conf/` and `ps4-fix.sh` next to itself, so those steps only work if the whole repo is present, not just the script on its own.
+
+After reboot, the boot menu appears automatically on TTY1, showing all detected sessions and supported apps.
 
 ---
 
 ## File Locations
 
-| File / Directory                | Purpose                                           |
-| ------------------------------- | ------------------------------------------------- |
-| `/usr/local/bin/bootmenu.sh`    | Boot menu launcher script (auto-detects apps/DEs) |
-| `/usr/local/bin/ps3_to_keys.py` | Python gamepad-to-keyboard mapper                 |
-| `$HOME/.icewm/menu`             | IceWM menu configuration                          |
-| `$HOME/.icewm/startup`          | IceWM autostart (AntimicroX + Onboard)            |
-| `$HOME/.config/autostart/`      | XFCE4 autostart entries (AntimicroX + Onboard)    |
-| `$HOME/.twm/startup`            | TWM autostart script                              |
-| `$HOME/.twm/colors`             | TWM color configuration                           |
-| `.config/retroarch/cores/`      | Downloaded RetroArch cores                        |
+| File / Directory                | Purpose                                              |
+| -------------------------------- | ----------------------------------------------------- |
+| `/usr/local/bin/bootmenu.sh`      | Boot menu launcher script (auto-detects apps/sessions) |
+| `/usr/local/bin/ps3_to_keys.py`   | Python gamepad-to-keyboard mapper                      |
+| `/usr/local/bin/diagnostic.sh`    | System diagnostics script                              |
+| `conf/retroarch/`                 | Bundled RetroArch config, deployed to `~/.config/retroarch` |
+| `conf/antimicrox/`                | Bundled AntiMicroX profile(s), deployed to `~/.config/antimicrox` |
+| `~/.config/retroarch/cores/`      | Downloaded RetroArch cores                             |
+| `~/.xinitrc`                      | Generated per-session X startup script                |
+| `ps4-fix.sh`                       | Optional DualShock 4 Bluetooth pairing fix (Arch)      |
+| `emulators/`                       | Emulator-related assets/configs                        |
+| `old/`                             | Archived/deprecated scripts, kept for reference        |
 
 ---
 
 ## Controller Mapping
 
-* **PS3 / PS4**:
-  X → Enter, Circle → Escape, Square → Backspace, Triangle → Space, D-Pad → Arrows
+* **PS3 / PS4 / PS5**: Cross/X → Enter, Circle → Escape, Square → Backspace, Triangle → Space, D-Pad → Arrows
+* **Xbox / Generic**: A → Enter, B → Escape, X → Backspace, Y → Space, D-Pad → Arrows
 
-* **Xbox / Generic**:
-  A → Enter, B → Escape, X → Backspace, Y → Space, D-Pad → Arrows
-
-Mappings can be modified in `ps3_to_keys.py`.
+Mappings can be modified in `ps3_to_keys.py`. Menu navigation also works via the left analog stick.
 
 ---
 
 ## Known Issues
 
-* External AntimicroX profiles must be added manually (`bootmenu_gamepad_profile.amgp`).
+* AntiMicroX/RetroArch configs only deploy if you clone the full repo (not if you download a single script file).
+* `ps4-fix.sh` currently only runs automatically from `SGBU.sh` on Arch, since it calls `pacman` directly.
+* Some settings may not apply automatically depending on your desktop environment — this project is still experimental.
+
+See `todo.md` for planned work.
 
 ---
 
 ## License
 
-[MIT License](https://raw.githubusercontent.com/stuffbymax/retro/refs/heads/main/LICENSE)
+[MIT License](https://raw.githubusercontent.com/stuffbymax/Simple-Game-Boot-Utility/main/LICENSE)
 
 ---
 
 ## Screenshots
 
-<img width="962" height="799" alt="Boot Menu" src="https://github.com/user-attachments/assets/3664ebfe-f984-45ec-b301-235b3ea437b8" />  
+<img width="962" height="799" alt="Boot Menu" src="https://github.com/user-attachments/assets/3664ebfe-f984-45ec-b301-235b3ea437b8" />
 
-<img width="482" height="319" alt="RetroArch" src="https://github.com/user-attachments/assets/9cdc5bde-563e-4475-87a2-d78870f416f1" />  
-
----
+<img width="482" height="319" alt="RetroArch" src="https://github.com/user-attachments/assets/9cdc5bde-563e-4475-87a2-d78870f416f1" />
