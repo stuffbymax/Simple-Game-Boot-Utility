@@ -3,7 +3,12 @@
 # description: Installer script for Simple Game Boot Utility (SGBU) - Multi-Distro Edition
 # Supports: Arch Linux, Debian/Ubuntu, Gentoo
 # License: MIT
-# version 0.0.6.0 - GamepadUI, Multi-Distro, Steam + Vulkan driver selection
+# version 0.0.7.0 - GamepadUI, Multi-Distro, Steam + Vulkan driver selection, bundled RetroArch/AntiMicroX configs
+#
+# NOTE: This script expects to be run from inside a clone of the SGBU repo,
+# with a "conf" folder sitting next to it (conf/retroarch, conf/antimicrox).
+# If you only downloaded this file on its own, the RetroArch/AntiMicroX
+# config deployment step will be skipped automatically.
 set -euo pipefail
 
 # -------------------------------
@@ -15,6 +20,10 @@ PS3_PYTHON="/usr/local/bin/ps3_to_keys.py"
 DIAGNOSTIC="/usr/local/bin/diagnostic.sh"
 LOG_FILE="$HOME/install_log.txt"
 
+# Directory this script lives in, and the bundled conf folder next to it
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONF_DIR="$SCRIPT_DIR/conf"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -25,7 +34,7 @@ NC='\033[0m'
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo -e "${CYAN}================================================"
-echo -e "  Simple Game Boot INSTALLER v0.0.6"
+echo -e "  Simple Game Boot INSTALLER v0.0.7"
 echo -e "  Multi-Distro Edition"
 echo -e "  warning: This script modifies system files and installs packages."
 echo -e "  Please review the script before running."
@@ -36,7 +45,7 @@ echo -e "  If you are using Gentoo, make sure to set the appropriate USE flags f
 echo -e "  This script is provided as-is. Use at your own risk."
 echo -e "  Supported distros: Arch Linux, Debian/Ubuntu, Gentoo"
 echo -e "================================================${NC}"
-echo "Includes: Steam (GamepadUI), Vulkan driver selection, Bluetooth, Controller Mapping"
+echo "Includes: Steam (GamepadUI), Vulkan driver selection, Bluetooth, Controller Mapping, RetroArch/AntiMicroX configs, PS4 Bluetooth fix (Arch)"
 echo ""
 
 # -------------------------------
@@ -295,7 +304,49 @@ if [ "$DISTRO" = "debian" ]; then
 fi
 
 # -------------------------------
-# 6. UINPUT & PERMISSIONS
+# 6. DEPLOY BUNDLED CONFIG FILES (RetroArch / AntiMicroX)
+# -------------------------------
+deploy_conf_files() {
+    echo -e "${YELLOW}Deploying bundled config files (RetroArch / AntiMicroX)...${NC}"
+    echo -e "Looking for conf folder at: ${CONF_DIR}"
+
+    if [ ! -d "$CONF_DIR" ]; then
+        echo -e "${YELLOW}!${NC} No 'conf' folder found next to this script."
+        echo -e "${YELLOW}!${NC} Make sure you cloned the full repo and are running this script from inside it:"
+        echo -e "    git clone https://github.com/stuffbymax/Simple-Game-Boot-Utility.git"
+        echo -e "    cd Simple-Game-Boot-Utility"
+        echo -e "    ./install-multi.sh"
+        echo -e "${YELLOW}Skipping RetroArch/AntiMicroX config deployment.${NC}"
+        return
+    fi
+
+    # RetroArch config
+    if [ -d "$CONF_DIR/retroarch" ]; then
+        mkdir -p "$HOME/.config/retroarch"
+        if [ -f "$HOME/.config/retroarch/retroarch.cfg" ]; then
+            BACKUP="$HOME/.config/retroarch/retroarch.cfg.bak.$(date +%s)"
+            cp "$HOME/.config/retroarch/retroarch.cfg" "$BACKUP" 2>/dev/null || true
+            echo -e "${YELLOW}!${NC} Existing retroarch.cfg backed up to $BACKUP"
+        fi
+        cp -rT "$CONF_DIR/retroarch" "$HOME/.config/retroarch"
+        echo -e "${GREEN}✓${NC} RetroArch config deployed to ~/.config/retroarch"
+    else
+        echo -e "${YELLOW}!${NC} No conf/retroarch folder in repo, skipping RetroArch config."
+    fi
+
+    # AntiMicroX config/profiles
+    if [ -d "$CONF_DIR/antimicrox" ]; then
+        mkdir -p "$HOME/.config/antimicrox"
+        cp -rT "$CONF_DIR/antimicrox" "$HOME/.config/antimicrox"
+        echo -e "${GREEN}✓${NC} AntiMicroX profile(s) deployed to ~/.config/antimicrox"
+    else
+        echo -e "${YELLOW}!${NC} No conf/antimicrox folder in repo, skipping AntiMicroX config."
+    fi
+}
+deploy_conf_files
+
+# -------------------------------
+# 7. UINPUT & PERMISSIONS
 # -------------------------------
 echo -e "${YELLOW}Configuring uinput permissions...${NC}"
 sudo modprobe uinput || true
@@ -319,7 +370,7 @@ sudo udevadm control --reload-rules || true
 sudo udevadm trigger || true
 
 # -------------------------------
-# 7. CONTROLLER MAPPER (Python)
+# 8. CONTROLLER MAPPER (Python)
 # -------------------------------
 echo -e "${YELLOW}Creating Controller Mapper...${NC}"
 sudo tee "$PS3_PYTHON" >/dev/null << 'EOF'
@@ -530,7 +581,7 @@ EOF
 sudo chmod +x "$PS3_PYTHON"
 
 # -------------------------------
-# 8. BOOT MENU
+# 9. BOOT MENU
 # -------------------------------
 echo -e "${YELLOW}Creating Boot Menu...${NC}"
 sudo tee "$BOOTMENU" >/dev/null << 'BOOTMENU_EOF'
@@ -772,7 +823,7 @@ while true; do
     ACTIONS+=("shutdown")
 
     SYSINFO=$(get_system_info)
-    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | v0.0.5-arch | $SYSINFO" \
+    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | v0.0.7-multi | $SYSINFO" \
         --menu "Select Action" 22 70 14 "${ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 0
 
     ACTION="${ACTIONS[$((CHOICE-1))]}"
@@ -794,7 +845,12 @@ while true; do
 
         retroarch)
             [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
-            retroarch -f 2>&1 | tee -a "$HOME/retroarch.log"
+            # Use the bundled/deployed retroarch.cfg if present, otherwise fall back to defaults
+            if [ -f "$HOME/.config/retroarch/retroarch.cfg" ]; then
+                retroarch -f --config "$HOME/.config/retroarch/retroarch.cfg" 2>&1 | tee -a "$HOME/retroarch.log"
+            else
+                retroarch -f 2>&1 | tee -a "$HOME/retroarch.log"
+            fi
             [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
             ;;
 
@@ -821,7 +877,7 @@ BTRC
             wait $!
         fi
     else
-        echo -e "${RED}blueman not found. Install with: sudo pacman -S blueman${NC}"
+        echo -e "${RED}blueman not found. Install it via your package manager.${NC}"
         read -rp "Press Enter..."
     fi
 
@@ -831,11 +887,19 @@ BTRC
         session:*)
             [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
             SESSION_EXEC="${ACTION#session:}"
+            # Pick up a bundled AntiMicroX profile if one was deployed by the installer
+            ANTIMICROX_PROFILE=$(find "$HOME/.config/antimicrox" -maxdepth 1 -type f \( -iname "*.amgp" -o -iname "*.gamecontroller.amgp" \) 2>/dev/null | head -n1)
             cat > "$HOME/.xinitrc" << XINITRC
 #!/bin/bash
 export DISPLAY=:0
 export XAUTHORITY=\$HOME/.Xauthority
-command -v antimicrox >/dev/null && antimicrox --hidden &
+if command -v antimicrox >/dev/null; then
+    if [ -n "$ANTIMICROX_PROFILE" ]; then
+        antimicrox --profile "$ANTIMICROX_PROFILE" --hidden &
+    else
+        antimicrox --hidden &
+    fi
+fi
 command -v onboard >/dev/null && onboard &
 exec $SESSION_EXEC
 XINITRC
@@ -864,7 +928,7 @@ BOOTMENU_EOF
 sudo chmod +x "$BOOTMENU"
 
 # -------------------------------
-# 9. DIAGNOSTIC SCRIPT
+# 10. DIAGNOSTIC SCRIPT
 # -------------------------------
 echo -e "${YELLOW}Creating Diagnostic Script...${NC}"
 sudo tee "$DIAGNOSTIC" >/dev/null << 'EOF'
@@ -935,6 +999,20 @@ command -v Xorg >/dev/null && echo -e "${GREEN}✓${NC} Xorg installed" || echo 
 
 echo -e "\n${CYAN}[RetroArch]${NC}"
 command -v retroarch >/dev/null && echo -e "${GREEN}✓${NC} RetroArch installed" || echo -e "${RED}✗${NC} RetroArch missing"
+if [ -f "$HOME/.config/retroarch/retroarch.cfg" ]; then
+    echo -e "${GREEN}✓${NC} retroarch.cfg present at ~/.config/retroarch/retroarch.cfg"
+else
+    echo -e "${YELLOW}!${NC} No retroarch.cfg found (bundled config was not deployed)"
+fi
+
+echo -e "\n${CYAN}[AntiMicroX]${NC}"
+command -v antimicrox >/dev/null && echo -e "${GREEN}✓${NC} AntiMicroX installed" || echo -e "${RED}✗${NC} AntiMicroX missing"
+AMGP_COUNT=$(find "$HOME/.config/antimicrox" -maxdepth 1 -type f \( -iname "*.amgp" -o -iname "*.gamecontroller.amgp" \) 2>/dev/null | wc -l)
+if [ "$AMGP_COUNT" -gt 0 ]; then
+    echo -e "${GREEN}✓${NC} $AMGP_COUNT AntiMicroX profile(s) found in ~/.config/antimicrox"
+else
+    echo -e "${YELLOW}!${NC} No AntiMicroX profile found (bundled config was not deployed)"
+fi
 
 echo -e "\n${CYAN}[Input Devices]${NC}"
 if ls /dev/input/event* >/dev/null 2>&1; then
@@ -958,7 +1036,7 @@ EOF
 sudo chmod +x "$DIAGNOSTIC"
 
 # -------------------------------
-# 10. AUTOLOGIN & SERVICE SETUP
+# 11. AUTOLOGIN & SERVICE SETUP
 # -------------------------------
 
 # Detect init system
@@ -1002,7 +1080,7 @@ elif $use_openrc; then
 fi
 
 # -------------------------------
-# 11. BLUETOOTH SERVICE
+# 12. BLUETOOTH SERVICE
 # -------------------------------
 echo -e "${YELLOW}Configuring Bluetooth service...${NC}"
 
@@ -1021,7 +1099,39 @@ if command -v bluetoothctl >/dev/null; then
 fi
 
 # -------------------------------
-# 12. SHELL TRIGGER
+# 13. PS4 CONTROLLER BLUETOOTH FIX (ARCH ONLY)
+# -------------------------------
+run_ps4_fix() {
+    local PS4_FIX="$SCRIPT_DIR/ps4-fix.sh"
+
+    if [ "$DISTRO" != "arch" ]; then
+        echo -e "${YELLOW}!${NC} ps4-fix.sh only supports Arch Linux (it calls pacman directly) — skipping on $DISTRO."
+        return
+    fi
+
+    if [ ! -f "$PS4_FIX" ]; then
+        echo -e "${YELLOW}!${NC} ps4-fix.sh not found next to this script ($SCRIPT_DIR) — skipping. Make sure you cloned the full repo."
+        return
+    fi
+
+    echo ""
+    echo -e "${CYAN}================================================"
+    echo -e "   PS4 CONTROLLER BLUETOOTH FIX"
+    echo -e "================================================${NC}"
+    echo "This reloads the hid_sony kernel module and walks you through"
+    echo "pairing a DualShock 4 over Bluetooth (fixes touchpad/button issues)."
+    read -r -p "Run ps4-fix.sh now? [y/N]: " PS4_FIX_CONFIRM
+    if [[ "${PS4_FIX_CONFIRM,,}" == "y" ]]; then
+        echo -e "${YELLOW}Running ps4-fix.sh...${NC}"
+        bash "$PS4_FIX" || echo -e "${YELLOW}ps4-fix.sh exited with an error — continuing installer...${NC}"
+    else
+        echo -e "${YELLOW}Skipping PS4 controller Bluetooth fix. You can run it later with: bash $PS4_FIX${NC}"
+    fi
+}
+run_ps4_fix
+
+# -------------------------------
+# 14. SHELL TRIGGER
 # -------------------------------
 TARGET_PROFILE="$HOME/.bash_profile"
 [[ ! -f "$TARGET_PROFILE" ]] && TARGET_PROFILE="$HOME/.profile"
@@ -1031,7 +1141,7 @@ if ! grep -q "bootmenu.sh" "$TARGET_PROFILE" 2>/dev/null; then
 fi
 
 # -------------------------------
-# 13. RETROARCH CORES
+# 15. RETROARCH CORES
 # -------------------------------
 echo -e "${YELLOW}Downloading RetroArch cores...${NC}"
 mkdir -p "$HOME/.config/retroarch/cores"
@@ -1054,6 +1164,11 @@ echo -e "${GREEN}✓${NC} Boot menu:   $BOOTMENU"
 echo -e "${GREEN}✓${NC} Steam:       installed (GamepadUI enabled)"
 echo -e "${GREEN}✓${NC} Vulkan:      choice applied (option $VULKAN_CHOICE)"
 echo -e "${GREEN}✓${NC} Bluetooth:   enabled & started"
+if [ -d "$CONF_DIR" ]; then
+    echo -e "${GREEN}✓${NC} Bundled configs: deployed from $CONF_DIR"
+else
+    echo -e "${YELLOW}!${NC} Bundled configs: skipped (no ./conf folder found — clone the full repo)"
+fi
 echo ""
 echo -e "${YELLOW}IMPORTANT:${NC} You must REBOOT for group permissions to apply."
 echo "On next boot the menu will load automatically on TTY1."

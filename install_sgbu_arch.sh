@@ -2,7 +2,11 @@
 # created BY marinP/stuffbymax (Arch-only fork)
 # description: Installer script for Simple Game Boot Utility (SGBU) - Arch Linux Edition
 # License: MIT
-# version 0.0.5.0 - GamepadUI, Arch-only, Steam + Vulkan driver selection
+# version 0.0.6.0 - GamepadUI, Arch-only, Steam + Vulkan driver selection, bundled RetroArch/AntiMicroX configs, PS4 BT fix
+#
+# NOTE: This script expects to be run from inside a clone of the SGBU repo,
+# with "conf" and "ps4-fix.sh" sitting next to it. If they're missing,
+# the related steps are skipped automatically.
 set -euo pipefail
 
 # -------------------------------
@@ -14,6 +18,11 @@ PS3_PYTHON="/usr/local/bin/ps3_to_keys.py"
 DIAGNOSTIC="/usr/local/bin/diagnostic.sh"
 LOG_FILE="$HOME/install_log.txt"
 
+# Directory this script lives in, and the bundled conf/ps4-fix files next to it
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONF_DIR="$SCRIPT_DIR/conf"
+PS4_FIX="$SCRIPT_DIR/ps4-fix.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -24,10 +33,10 @@ NC='\033[0m'
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo -e "${CYAN}================================================"
-echo -e "   Simple Game Boot INSTALLER v0.0.5 (Arch)"
+echo -e "   Simple Game Boot INSTALLER v0.0.6 (Arch)"
 echo -e "================================================${NC}"
 echo "Target: Arch Linux only"
-echo "Includes: Steam (GamepadUI), Vulkan driver selection, Bluetooth, Controller Mapping"
+echo "Includes: Steam (GamepadUI), Vulkan driver selection, Bluetooth, Controller Mapping, RetroArch/AntiMicroX configs, PS4 Bluetooth fix"
 echo ""
 
 # -------------------------------
@@ -159,7 +168,49 @@ sudo pacman -S --needed --noconfirm steam || {
 }
 
 # -------------------------------
-# 6. UINPUT & PERMISSIONS
+# 6. DEPLOY BUNDLED CONFIG FILES (RetroArch / AntiMicroX)
+# -------------------------------
+deploy_conf_files() {
+    echo -e "${YELLOW}Deploying bundled config files (RetroArch / AntiMicroX)...${NC}"
+    echo -e "Looking for conf folder at: ${CONF_DIR}"
+
+    if [ ! -d "$CONF_DIR" ]; then
+        echo -e "${YELLOW}!${NC} No 'conf' folder found next to this script."
+        echo -e "${YELLOW}!${NC} Make sure you cloned the full repo and are running this script from inside it:"
+        echo -e "    git clone https://github.com/stuffbymax/Simple-Game-Boot-Utility.git"
+        echo -e "    cd Simple-Game-Boot-Utility"
+        echo -e "    ./install_sgbu_arch.sh"
+        echo -e "${YELLOW}Skipping RetroArch/AntiMicroX config deployment.${NC}"
+        return
+    fi
+
+    # RetroArch config
+    if [ -d "$CONF_DIR/retroarch" ]; then
+        mkdir -p "$HOME/.config/retroarch"
+        if [ -f "$HOME/.config/retroarch/retroarch.cfg" ]; then
+            BACKUP="$HOME/.config/retroarch/retroarch.cfg.bak.$(date +%s)"
+            cp "$HOME/.config/retroarch/retroarch.cfg" "$BACKUP" 2>/dev/null || true
+            echo -e "${YELLOW}!${NC} Existing retroarch.cfg backed up to $BACKUP"
+        fi
+        cp -rT "$CONF_DIR/retroarch" "$HOME/.config/retroarch"
+        echo -e "${GREEN}✓${NC} RetroArch config deployed to ~/.config/retroarch"
+    else
+        echo -e "${YELLOW}!${NC} No conf/retroarch folder in repo, skipping RetroArch config."
+    fi
+
+    # AntiMicroX config/profiles
+    if [ -d "$CONF_DIR/antimicrox" ]; then
+        mkdir -p "$HOME/.config/antimicrox"
+        cp -rT "$CONF_DIR/antimicrox" "$HOME/.config/antimicrox"
+        echo -e "${GREEN}✓${NC} AntiMicroX profile(s) deployed to ~/.config/antimicrox"
+    else
+        echo -e "${YELLOW}!${NC} No conf/antimicrox folder in repo, skipping AntiMicroX config."
+    fi
+}
+deploy_conf_files
+
+# -------------------------------
+# 7. UINPUT & PERMISSIONS
 # -------------------------------
 echo -e "${YELLOW}Configuring uinput permissions...${NC}"
 sudo modprobe uinput || true
@@ -182,7 +233,7 @@ sudo udevadm control --reload-rules || true
 sudo udevadm trigger || true
 
 # -------------------------------
-# 7. CONTROLLER MAPPER (Python)
+# 8. CONTROLLER MAPPER (Python)
 # -------------------------------
 echo -e "${YELLOW}Creating Controller Mapper...${NC}"
 sudo tee "$PS3_PYTHON" >/dev/null << 'EOF'
@@ -199,163 +250,62 @@ import uinput
 import sys
 import time
 
-# -------------------------------
-# KNOWN CONTROLLER NAMES
-# -------------------------------
 KNOWN_CONTROLLERS = [
-    # PlayStation
-    "sony",
-    "playstation",
-    "dualshock",
-    "dualsense",
-    "sixaxis",
-    "ps3",
-    "ps4",
-    "ps5",
-    "wireless controller",
-    # Xbox
-    "xbox",
-    "microsoft",
-    "x-box",
-    "xinput",
-    "360 pad",
-    "xbox 360",
-    "xbox one",
-    "xbox series",
-    # Generic
-    "gamepad",
-    "joystick",
+    "sony", "playstation", "dualshock", "dualsense", "sixaxis",
+    "ps3", "ps4", "ps5", "wireless controller",
+    "xbox", "microsoft", "x-box", "xinput", "360 pad",
+    "xbox 360", "xbox one", "xbox series",
+    "gamepad", "joystick",
 ]
 
-# Sub-devices to skip
 EXCLUDE_NAMES = [
-    "touchpad",
-    "motion",
-    "accelerometer",
-    "gyro",
-    "sensor",
-    "rumble",
-    "battery",
+    "touchpad", "motion", "accelerometer", "gyro",
+    "sensor", "rumble", "battery",
 ]
 
-# -------------------------------
-# BUTTON MAPS
-# -------------------------------
-
-# PS3 DualShock 3 / Sixaxis
 BTN_MAP_PS3 = {
-    304: uinput.KEY_ENTER,      # Cross
-    305: uinput.KEY_ESC,        # Circle
-    307: uinput.KEY_SPACE,      # Square
-    308: uinput.KEY_BACKSPACE,  # Triangle
-    544: uinput.KEY_UP,         # D-pad Up
-    545: uinput.KEY_DOWN,       # D-pad Down
-    546: uinput.KEY_LEFT,       # D-pad Left
-    547: uinput.KEY_RIGHT,      # D-pad Right
-    310: uinput.KEY_TAB,        # L1
-    311: uinput.KEY_F1,         # R1
-    312: uinput.KEY_F2,         # L2
-    313: uinput.KEY_F3,         # R2
-    314: uinput.KEY_F4,         # Select
-    315: uinput.KEY_F5,         # Start
-    316: uinput.KEY_F6,         # PS Button
-    317: uinput.KEY_F7,         # L3
-    318: uinput.KEY_F8,         # R3
+    304: uinput.KEY_ENTER, 305: uinput.KEY_ESC, 307: uinput.KEY_SPACE, 308: uinput.KEY_BACKSPACE,
+    544: uinput.KEY_UP, 545: uinput.KEY_DOWN, 546: uinput.KEY_LEFT, 547: uinput.KEY_RIGHT,
+    310: uinput.KEY_TAB, 311: uinput.KEY_F1, 312: uinput.KEY_F2, 313: uinput.KEY_F3,
+    314: uinput.KEY_F4, 315: uinput.KEY_F5, 316: uinput.KEY_F6, 317: uinput.KEY_F7, 318: uinput.KEY_F8,
 }
 
-# PS4 DualShock 4
 BTN_MAP_PS4 = {
-    304: uinput.KEY_ENTER,      # Cross
-    305: uinput.KEY_ESC,        # Circle
-    307: uinput.KEY_SPACE,      # Square
-    308: uinput.KEY_BACKSPACE,  # Triangle
-    310: uinput.KEY_TAB,        # L1
-    311: uinput.KEY_F1,         # R1
-    312: uinput.KEY_F2,         # L2
-    313: uinput.KEY_F3,         # R2
-    314: uinput.KEY_F4,         # Share
-    315: uinput.KEY_F5,         # Options
-    316: uinput.KEY_F6,         # PS Button
-    317: uinput.KEY_F7,         # L3
-    318: uinput.KEY_F8,         # R3
-    319: uinput.KEY_F9,         # Touchpad click
+    304: uinput.KEY_ENTER, 305: uinput.KEY_ESC, 307: uinput.KEY_SPACE, 308: uinput.KEY_BACKSPACE,
+    310: uinput.KEY_TAB, 311: uinput.KEY_F1, 312: uinput.KEY_F2, 313: uinput.KEY_F3,
+    314: uinput.KEY_F4, 315: uinput.KEY_F5, 316: uinput.KEY_F6, 317: uinput.KEY_F7,
+    318: uinput.KEY_F8, 319: uinput.KEY_F9,
 }
 
-# PS5 DualSense
 BTN_MAP_PS5 = {
-    304: uinput.KEY_ENTER,      # Cross
-    305: uinput.KEY_ESC,        # Circle
-    307: uinput.KEY_SPACE,      # Square
-    308: uinput.KEY_BACKSPACE,  # Triangle
-    310: uinput.KEY_TAB,        # L1
-    311: uinput.KEY_F1,         # R1
-    312: uinput.KEY_F2,         # L2
-    313: uinput.KEY_F3,         # R2
-    314: uinput.KEY_F4,         # Create
-    315: uinput.KEY_F5,         # Options
-    316: uinput.KEY_F6,         # PS Button
-    317: uinput.KEY_F7,         # L3
-    318: uinput.KEY_F8,         # R3
-    319: uinput.KEY_F9,         # Touchpad click
-    320: uinput.KEY_F10,        # Mute
+    304: uinput.KEY_ENTER, 305: uinput.KEY_ESC, 307: uinput.KEY_SPACE, 308: uinput.KEY_BACKSPACE,
+    310: uinput.KEY_TAB, 311: uinput.KEY_F1, 312: uinput.KEY_F2, 313: uinput.KEY_F3,
+    314: uinput.KEY_F4, 315: uinput.KEY_F5, 316: uinput.KEY_F6, 317: uinput.KEY_F7,
+    318: uinput.KEY_F8, 319: uinput.KEY_F9, 320: uinput.KEY_F10,
 }
 
-# Xbox 360 (xpad kernel driver)
-# Note: D-pad comes through as ABS_HAT0X/Y, not buttons
 BTN_MAP_XBOX360 = {
-    304: uinput.KEY_ENTER,      # A
-    305: uinput.KEY_ESC,        # B
-    307: uinput.KEY_SPACE,      # X
-    308: uinput.KEY_BACKSPACE,  # Y
-    310: uinput.KEY_TAB,        # LB
-    311: uinput.KEY_F1,         # RB
-    314: uinput.KEY_F4,         # Back
-    315: uinput.KEY_F5,         # Start
-    316: uinput.KEY_F6,         # Xbox/Guide button
-    317: uinput.KEY_F7,         # Left stick click (LS)
-    318: uinput.KEY_F8,         # Right stick click (RS)
+    304: uinput.KEY_ENTER, 305: uinput.KEY_ESC, 307: uinput.KEY_SPACE, 308: uinput.KEY_BACKSPACE,
+    310: uinput.KEY_TAB, 311: uinput.KEY_F1,
+    314: uinput.KEY_F4, 315: uinput.KEY_F5, 316: uinput.KEY_F6, 317: uinput.KEY_F7, 318: uinput.KEY_F8,
 }
 
-# Xbox One (xpad / xone kernel driver)
 BTN_MAP_XBOXONE = {
-    304: uinput.KEY_ENTER,      # A
-    305: uinput.KEY_ESC,        # B
-    307: uinput.KEY_SPACE,      # X
-    308: uinput.KEY_BACKSPACE,  # Y
-    310: uinput.KEY_TAB,        # LB
-    311: uinput.KEY_F1,         # RB
-    314: uinput.KEY_F4,         # View (Back)
-    315: uinput.KEY_F5,         # Menu (Start)
-    316: uinput.KEY_F6,         # Xbox/Guide button
-    317: uinput.KEY_F7,         # LS
-    318: uinput.KEY_F8,         # RS
-    706: uinput.KEY_F9,         # Share button (Xbox One S/X only)
+    304: uinput.KEY_ENTER, 305: uinput.KEY_ESC, 307: uinput.KEY_SPACE, 308: uinput.KEY_BACKSPACE,
+    310: uinput.KEY_TAB, 311: uinput.KEY_F1,
+    314: uinput.KEY_F4, 315: uinput.KEY_F5, 316: uinput.KEY_F6, 317: uinput.KEY_F7,
+    318: uinput.KEY_F8, 706: uinput.KEY_F9,
 }
 
-# Xbox Series X/S (xpad kernel driver, same as One but with extra buttons)
 BTN_MAP_XBOXSERIES = {
-    304: uinput.KEY_ENTER,      # A
-    305: uinput.KEY_ESC,        # B
-    307: uinput.KEY_SPACE,      # X
-    308: uinput.KEY_BACKSPACE,  # Y
-    310: uinput.KEY_TAB,        # LB
-    311: uinput.KEY_F1,         # RB
-    314: uinput.KEY_F4,         # View
-    315: uinput.KEY_F5,         # Menu
-    316: uinput.KEY_F6,         # Xbox/Guide button
-    317: uinput.KEY_F7,         # LS
-    318: uinput.KEY_F8,         # RS
-    706: uinput.KEY_F9,         # Share
-    167: uinput.KEY_F10,        # Share (alternate code)
+    304: uinput.KEY_ENTER, 305: uinput.KEY_ESC, 307: uinput.KEY_SPACE, 308: uinput.KEY_BACKSPACE,
+    310: uinput.KEY_TAB, 311: uinput.KEY_F1,
+    314: uinput.KEY_F4, 315: uinput.KEY_F5, 316: uinput.KEY_F6, 317: uinput.KEY_F7,
+    318: uinput.KEY_F8, 706: uinput.KEY_F9, 167: uinput.KEY_F10,
 }
 
-# -------------------------------
-# CONTROLLER DETECTION
-# -------------------------------
 def find_controller():
     devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
-
-    # First pass: known controller names, excluding sub-devices
     for device in devices:
         name_lower = device.name.lower()
         if any(k in name_lower for k in KNOWN_CONTROLLERS):
@@ -365,8 +315,6 @@ def find_controller():
             caps = device.capabilities()
             if evdev.ecodes.EV_KEY in caps:
                 return device
-
-    # Second pass: any gamepad-like device, excluding sub-devices
     for device in devices:
         name_lower = device.name.lower()
         if any(ex in name_lower for ex in EXCLUDE_NAMES):
@@ -376,13 +324,10 @@ def find_controller():
             keys = caps[evdev.ecodes.EV_KEY]
             if len(keys) >= 8:
                 return device
-
     return None
 
 def detect_controller_type(device):
     name_lower = device.name.lower()
-
-    # PlayStation
     if "dualsense" in name_lower or "ps5" in name_lower:
         print("[SGBU] Detected: PS5 DualSense")
         return "ps5", BTN_MAP_PS5
@@ -392,8 +337,6 @@ def detect_controller_type(device):
     elif "ps3" in name_lower or "dualshock 3" in name_lower or "sixaxis" in name_lower:
         print("[SGBU] Detected: PS3 DualShock 3 / Sixaxis")
         return "ps3", BTN_MAP_PS3
-
-    # Xbox
     elif "series" in name_lower or "xbox series" in name_lower:
         print("[SGBU] Detected: Xbox Series X/S")
         return "xboxseries", BTN_MAP_XBOXSERIES
@@ -404,48 +347,34 @@ def detect_controller_type(device):
         print("[SGBU] Detected: Xbox 360")
         return "xbox360", BTN_MAP_XBOX360
     elif "xbox" in name_lower or "microsoft" in name_lower or "x-box" in name_lower:
-        # Generic Xbox fallback — use Xbox One map
         print(f"[SGBU] Detected: Xbox (generic) — using Xbox One map")
         return "xboxone", BTN_MAP_XBOXONE
-
     else:
         print(f"[SGBU] Unknown controller '{device.name}', using PS4 button map")
         return "ps4", BTN_MAP_PS4
 
-# -------------------------------
-# ANALOG STICK DPAD EMULATION
-# -------------------------------
-AXIS_THRESHOLD = 16000  # out of 32767
-
-stick_state = {
-    "left_x": 0,
-    "left_y": 0,
-}
+AXIS_THRESHOLD = 16000
+stick_state = {"left_x": 0, "left_y": 0}
 
 def handle_analog(ui, code, value):
-    """Emulate D-pad from left analog stick."""
     if code == evdev.ecodes.ABS_X:
         stick_state["left_x"] = value
     elif code == evdev.ecodes.ABS_Y:
         stick_state["left_y"] = value
     else:
         return
-
     lx = stick_state["left_x"]
     ly = stick_state["left_y"]
-
     if lx < -AXIS_THRESHOLD:
         ui.emit(uinput.KEY_LEFT, 1); ui.emit(uinput.KEY_LEFT, 0)
     elif lx > AXIS_THRESHOLD:
         ui.emit(uinput.KEY_RIGHT, 1); ui.emit(uinput.KEY_RIGHT, 0)
-
     if ly < -AXIS_THRESHOLD:
         ui.emit(uinput.KEY_UP, 1); ui.emit(uinput.KEY_UP, 0)
     elif ly > AXIS_THRESHOLD:
         ui.emit(uinput.KEY_DOWN, 1); ui.emit(uinput.KEY_DOWN, 0)
 
 def handle_hat(ui, code, value):
-    """Handle D-pad HAT axis (all Xbox controllers + PS3, some PS4)."""
     if code == evdev.ecodes.ABS_HAT0Y:
         if value == -1:
             ui.emit(uinput.KEY_UP, 1); ui.emit(uinput.KEY_UP, 0)
@@ -457,9 +386,6 @@ def handle_hat(ui, code, value):
         elif value == 1:
             ui.emit(uinput.KEY_RIGHT, 1); ui.emit(uinput.KEY_RIGHT, 0)
 
-# -------------------------------
-# MAIN
-# -------------------------------
 def main():
     print("[SGBU] Controller mapper v0.0.4 starting...")
     print("[SGBU] Supports: PS3 / PS4 / PS5 / Xbox 360 / Xbox One / Xbox Series X|S")
@@ -530,7 +456,7 @@ EOF
 sudo chmod +x "$PS3_PYTHON"
 
 # -------------------------------
-# 8. BOOT MENU
+# 9. BOOT MENU
 # -------------------------------
 echo -e "${YELLOW}Creating Boot Menu...${NC}"
 sudo tee "$BOOTMENU" >/dev/null << 'BOOTMENU_EOF'
@@ -730,7 +656,7 @@ while true; do
     ACTIONS+=("shutdown")
 
     SYSINFO=$(get_system_info)
-    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | v0.0.5-arch | $SYSINFO" \
+    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | v0.0.6-arch | $SYSINFO" \
         --menu "Select Action" 22 70 14 "${ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 0
 
     ACTION="${ACTIONS[$((CHOICE-1))]}"
@@ -752,7 +678,11 @@ while true; do
 
         retroarch)
             [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
-            retroarch -f 2>&1 | tee -a "$HOME/retroarch.log"
+            if [ -f "$HOME/.config/retroarch/retroarch.cfg" ]; then
+                retroarch -f --config "$HOME/.config/retroarch/retroarch.cfg" 2>&1 | tee -a "$HOME/retroarch.log"
+            else
+                retroarch -f 2>&1 | tee -a "$HOME/retroarch.log"
+            fi
             [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
             ;;
 
@@ -789,11 +719,18 @@ BTRC
         session:*)
             [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
             SESSION_EXEC="${ACTION#session:}"
+            ANTIMICROX_PROFILE=$(find "$HOME/.config/antimicrox" -maxdepth 1 -type f \( -iname "*.amgp" -o -iname "*.gamecontroller.amgp" \) 2>/dev/null | head -n1)
             cat > "$HOME/.xinitrc" << XINITRC
 #!/bin/bash
 export DISPLAY=:0
 export XAUTHORITY=\$HOME/.Xauthority
-command -v antimicrox >/dev/null && antimicrox --hidden &
+if command -v antimicrox >/dev/null; then
+    if [ -n "$ANTIMICROX_PROFILE" ]; then
+        antimicrox --profile "$ANTIMICROX_PROFILE" --hidden &
+    else
+        antimicrox --hidden &
+    fi
+fi
 command -v onboard >/dev/null && onboard &
 exec $SESSION_EXEC
 XINITRC
@@ -822,7 +759,7 @@ BOOTMENU_EOF
 sudo chmod +x "$BOOTMENU"
 
 # -------------------------------
-# 9. DIAGNOSTIC SCRIPT
+# 10. DIAGNOSTIC SCRIPT
 # -------------------------------
 echo -e "${YELLOW}Creating Diagnostic Script...${NC}"
 sudo tee "$DIAGNOSTIC" >/dev/null << 'EOF'
@@ -854,7 +791,6 @@ fi
 echo -e "\n${CYAN}[Steam]${NC}"
 if command -v steam >/dev/null || [ -x "$HOME/.steam/steam/steam.sh" ]; then
     echo -e "${GREEN}✓${NC} Steam found"
-    # Check if GamepadUI is supported (Steam >= ~2022)
     STEAM_VER=$(steam --version 2>/dev/null | grep -oP '\d+\.\d+' | head -n1 || echo "unknown")
     echo -e "${GREEN}✓${NC} Steam version: $STEAM_VER"
 else
@@ -881,6 +817,21 @@ command -v Xorg >/dev/null && echo -e "${GREEN}✓${NC} Xorg installed" || echo 
 # RetroArch
 echo -e "\n${CYAN}[RetroArch]${NC}"
 command -v retroarch >/dev/null && echo -e "${GREEN}✓${NC} RetroArch installed" || echo -e "${RED}✗${NC} RetroArch missing"
+if [ -f "$HOME/.config/retroarch/retroarch.cfg" ]; then
+    echo -e "${GREEN}✓${NC} retroarch.cfg present at ~/.config/retroarch/retroarch.cfg"
+else
+    echo -e "${YELLOW}!${NC} No retroarch.cfg found (bundled config was not deployed)"
+fi
+
+# AntiMicroX
+echo -e "\n${CYAN}[AntiMicroX]${NC}"
+command -v antimicrox >/dev/null && echo -e "${GREEN}✓${NC} AntiMicroX installed" || echo -e "${RED}✗${NC} AntiMicroX missing"
+AMGP_COUNT=$(find "$HOME/.config/antimicrox" -maxdepth 1 -type f \( -iname "*.amgp" -o -iname "*.gamecontroller.amgp" \) 2>/dev/null | wc -l)
+if [ "$AMGP_COUNT" -gt 0 ]; then
+    echo -e "${GREEN}✓${NC} $AMGP_COUNT AntiMicroX profile(s) found in ~/.config/antimicrox"
+else
+    echo -e "${YELLOW}!${NC} No AntiMicroX profile found (bundled config was not deployed)"
+fi
 
 # Input devices
 echo -e "\n${CYAN}[Input Devices]${NC}"
@@ -904,7 +855,7 @@ EOF
 sudo chmod +x "$DIAGNOSTIC"
 
 # -------------------------------
-# 10. AUTOLOGIN & DISPLAY MANAGER
+# 11. AUTOLOGIN & DISPLAY MANAGER
 # -------------------------------
 if command -v systemctl >/dev/null; then
     echo -e "${YELLOW}Configuring Autologin on TTY1...${NC}"
@@ -924,7 +875,7 @@ EOF
 fi
 
 # -------------------------------
-# 11. BLUETOOTH SERVICE
+# 12. BLUETOOTH SERVICE
 # -------------------------------
 echo -e "${YELLOW}Configuring Bluetooth service...${NC}"
 sudo systemctl enable bluetooth.service 2>/dev/null || true
@@ -939,7 +890,32 @@ if command -v bluetoothctl >/dev/null; then
 fi
 
 # -------------------------------
-# 12. SHELL TRIGGER
+# 13. PS4 CONTROLLER BLUETOOTH FIX
+# -------------------------------
+run_ps4_fix() {
+    if [ ! -f "$PS4_FIX" ]; then
+        echo -e "${YELLOW}!${NC} ps4-fix.sh not found next to this script ($SCRIPT_DIR) — skipping. Make sure you cloned the full repo."
+        return
+    fi
+
+    echo ""
+    echo -e "${CYAN}================================================"
+    echo -e "   PS4 CONTROLLER BLUETOOTH FIX"
+    echo -e "================================================${NC}"
+    echo "This reloads the hid_sony kernel module and walks you through"
+    echo "pairing a DualShock 4 over Bluetooth (fixes touchpad/button issues)."
+    read -r -p "Run ps4-fix.sh now? [y/N]: " PS4_FIX_CONFIRM
+    if [[ "${PS4_FIX_CONFIRM,,}" == "y" ]]; then
+        echo -e "${YELLOW}Running ps4-fix.sh...${NC}"
+        bash "$PS4_FIX" || echo -e "${YELLOW}ps4-fix.sh exited with an error — continuing installer...${NC}"
+    else
+        echo -e "${YELLOW}Skipping PS4 controller Bluetooth fix. You can run it later with: bash $PS4_FIX${NC}"
+    fi
+}
+run_ps4_fix
+
+# -------------------------------
+# 14. SHELL TRIGGER
 # -------------------------------
 TARGET_PROFILE="$HOME/.bash_profile"
 [[ ! -f "$TARGET_PROFILE" ]] && TARGET_PROFILE="$HOME/.profile"
@@ -949,7 +925,7 @@ if ! grep -q "bootmenu.sh" "$TARGET_PROFILE" 2>/dev/null; then
 fi
 
 # -------------------------------
-# 13. RETROARCH CORES
+# 15. RETROARCH CORES
 # -------------------------------
 echo -e "${YELLOW}Downloading RetroArch cores...${NC}"
 mkdir -p "$HOME/.config/retroarch/cores"
@@ -971,6 +947,11 @@ echo -e "${GREEN}✓${NC} Boot menu:   $BOOTMENU"
 echo -e "${GREEN}✓${NC} Steam:       installed (GamepadUI enabled)"
 echo -e "${GREEN}✓${NC} Vulkan:      choice applied (option $VULKAN_CHOICE)"
 echo -e "${GREEN}✓${NC} Bluetooth:   enabled & started"
+if [ -d "$CONF_DIR" ]; then
+    echo -e "${GREEN}✓${NC} Bundled configs: deployed from $CONF_DIR"
+else
+    echo -e "${YELLOW}!${NC} Bundled configs: skipped (no ./conf folder found — clone the full repo)"
+fi
 echo ""
 echo -e "${YELLOW}IMPORTANT:${NC} You must REBOOT for group permissions to apply."
 echo "On next boot the menu will load automatically on TTY1."
