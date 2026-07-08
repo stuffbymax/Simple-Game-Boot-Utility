@@ -127,6 +127,5 @@ See `todo.md` for planned work.
 
 ## Screenshots
 
-<img width="962" height="799" alt="Boot Menu" src="https://github.com/user-attachments/assets/3664ebfe-f984-45ec-b301-235b3ea437b8" />
+<img width="1912" height="1005" alt="image" src="https://github.com/user-attachments/assets/8c392087-8ba0-4137-b247-f74bbbd7fa5b" />
 
-<img width="482" height="319" alt="RetroArch" src="https://github.com/user-attachments/assets/9cdc5bde-563e-4475-87a2-d78870f416f1" />
