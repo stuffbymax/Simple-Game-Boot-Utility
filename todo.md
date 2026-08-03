@@ -8,4 +8,4 @@
 6. rewire the gamepad script to no longer include  uinput it hussle to install it on arch
 7. custom spalsh screen
 8. include script that will change antimicrox conf when user game pad has stick drift
-9 relesed it on aur or custom arch ISO with the script installed
+9. relesed it on aur or custom arch ISO with the script installed

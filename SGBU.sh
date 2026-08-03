@@ -16,7 +16,7 @@ set -euo pipefail
 # -------------------------------
 USER_NAME="$(whoami)"
 BOOTMENU="/usr/local/bin/bootmenu.sh"
-PS3_PYTHON="/usr/local/bin/ps3_to_keys.py"
+GAMEPAD_PYTHON="/usr/local/bin/gamepad_to_keys.py"
 DIAGNOSTIC="/usr/local/bin/diagnostic.sh"
 LOG_FILE="$HOME/install_log.txt"
 
@@ -34,12 +34,14 @@ NC='\033[0m'
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo -e "${CYAN}================================================"
-echo -e "  Simple Game Boot INSTALLER v0.0.7"
+echo -e "  Simple Game Boot INSTALLER v0.0.8"
 echo -e "  Multi-Distro Edition"
 echo -e "  warning: This script modifies system files and installs packages."
 echo -e "  Please review the script before running."
-echo -e "  You need to install python3-evdev and python3-uinput manually for controller mapping to work Because those packages are form AUR and recently aur got pawned"
-echo -e "  install packages via AUR on your own risk"
+echo -e "  Controller mapping now only needs python-evdev (official repos on"
+echo -e "  every supported distro, no AUR required). evdev's own UInput class"
+echo -e "  is used to emit key events, so the old python-uinput AUR dependency"
+echo -e "  has been removed entirely."
 echo -e "  on arch the script will enable multilib repo and install steam and vulkan drivers automatically"
 echo -e "  If you are using Gentoo, make sure to set the appropriate USE flags for Vulkan and Steam support."
 echo -e "  This script is provided as-is. Use at your own risk."
@@ -115,25 +117,28 @@ pkg_install_optional() {
 pkgs_base() {
     case "$DISTRO" in
         arch)
-            echo "bluez bluez-utils retroarch retroarch-assets-xmb retroarch-assets-ozone \
-                  xorg-server xorg-xinit xorg-xinput xorg-xrandr \
+            # NOTE: retroarch-assets-xmb / retroarch-assets-xmb-sound are NOT official
+            # Arch packages (they don't exist in repos or AUR under that name) - dropped.
+            # retroarch-assets-ozone ships with RetroArch by default and IS a real package.
+            echo "bluez bluez-utils retroarch retroarch-assets-ozone \
+                  xorg-server xorg-xinit xorg-xinput xorg-xrandr unzip zip \
                   dialog antimicrox onboard \
-                  python-evdev python-uinput \
-                  wget curl unzip neovim tmux rfkill"
+                  python-evdev figlet \
+                  wget curl neovim tmux rfkill"
             ;;
         debian)
             echo "bluez bluez-utils retroarch \
                   xorg xinit xinput x11-xserver-utils \
                   dialog antimicrox onboard \
-                  python3-evdev python3-uinput \
-                  wget curl unzip neovim tmux rfkill"
+                  python3-evdev figlet \
+                  wget curl unzip zip neovim tmux rfkill antimicrox"
             ;;
         gentoo)
             echo "net-wireless/bluez \
                   games-emulation/retroarch \
                   x11-base/xorg-server x11-apps/xinit x11-apps/xinput x11-apps/xrandr \
                   dev-util/dialog games-util/antimicrox app-accessibility/onboard \
-                  dev-python/evdev dev-python/uinput \
+                  dev-python/evdev app-misc/figlet \
                   net-misc/wget net-misc/curl app-arch/unzip app-editors/neovim app-misc/tmux \
                   sys-apps/rfkill"
             ;;
@@ -346,6 +351,159 @@ deploy_conf_files() {
 deploy_conf_files
 
 # -------------------------------
+# 6B. PLYMOUTH BOOT SPLASH (sgbu_logo.png)
+# -------------------------------
+setup_plymouth_splash() {
+    local LOGO="$SCRIPT_DIR/sgbu_logo.png"
+    local THEME_DIR="/usr/share/plymouth/themes/sgbu"
+
+    echo -e "${YELLOW}Setting up Plymouth boot splash...${NC}"
+
+    if [ ! -f "$LOGO" ]; then
+        echo -e "${YELLOW}!${NC} No sgbu_logo.png found next to this script ($SCRIPT_DIR)."
+        echo -e "${YELLOW}!${NC} Skipping Plymouth splash setup. Drop sgbu_logo.png in the repo root and re-run to enable it."
+        return
+    fi
+
+    # Make sure plymouth itself is installed (not always in pkgs_base on every distro)
+    case "$DISTRO" in
+        arch)   pkg_install_optional plymouth ;;
+        debian) pkg_install_optional plymouth plymouth-themes ;;
+        gentoo) pkg_install_optional sys-boot/plymouth ;;
+    esac
+
+    if ! command -v plymouth-set-default-theme >/dev/null 2>&1 && [ ! -d /usr/share/plymouth ]; then
+        echo -e "${YELLOW}!${NC} Plymouth doesn't appear to be installed correctly, skipping splash setup."
+        return
+    fi
+
+    sudo mkdir -p "$THEME_DIR"
+    sudo cp "$LOGO" "$THEME_DIR/sgbu_logo.png"
+
+    sudo tee "$THEME_DIR/sgbu.plymouth" >/dev/null << 'PLYMOUTH_EOF'
+[Plymouth Theme]
+Name=SGBU
+Description=Simple Game Boot Utility splash screen
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/sgbu
+ScriptFile=/usr/share/plymouth/themes/sgbu/sgbu.script
+PLYMOUTH_EOF
+
+    sudo tee "$THEME_DIR/sgbu.script" >/dev/null << 'SCRIPT_EOF'
+# SGBU Plymouth theme - centers sgbu_logo.png on a black background
+# with a simple fade-in and a small pulsing-dot progress indicator.
+
+Window.SetBackgroundTopColor(0.0, 0.0, 0.0);
+Window.SetBackgroundBottomColor(0.0, 0.0, 0.0);
+
+logo.image = Image("sgbu_logo.png");
+logo.sprite = Sprite(logo.image);
+logo.x = Window.GetX() + Window.GetWidth()  / 2 - logo.image.GetWidth()  / 2;
+logo.y = Window.GetY() + Window.GetHeight() / 2 - logo.image.GetHeight() / 2;
+logo.sprite.SetPosition(logo.x, logo.y, 10000);
+logo.opacity = 0;
+
+fun fade_in_callback() {
+    if (logo.opacity < 1) {
+        logo.opacity += 0.05;
+        logo.sprite.SetOpacity(logo.opacity);
+    }
+}
+Plymouth.SetRefreshFunction(fade_in_callback);
+
+# Small pulsing dots under the logo to show activity while packages load / boot proceeds
+dot_count = 3;
+dots = [];
+for (i = 0; i < dot_count; i++) {
+    dots[i].sprite = Sprite();
+    dots[i].sprite.SetPosition(logo.x + logo.image.GetWidth() / 2 - (dot_count * 20) / 2 + i * 20,
+                                logo.y + logo.image.GetHeight() + 30, 10001);
+}
+
+progress = 0;
+fun pulse_callback() {
+    progress++;
+    for (i = 0; i < dot_count; i++) {
+        active = (Math.Int(progress / 10) % dot_count == i);
+        if (active) {
+            dots[i].sprite.SetImage(Image.Text("●", 1, 1, 1));
+        } else {
+            dots[i].sprite.SetImage(Image.Text("●", 0.4, 0.4, 0.4));
+        }
+    }
+}
+Plymouth.SetRefreshFunction(pulse_callback);
+
+fun display_normal_callback() {
+    logo.sprite.SetOpacity(1);
+}
+Plymouth.SetDisplayNormalFunction(display_normal_callback);
+SCRIPT_EOF
+
+    # Point the default theme at ours and rebuild the initramfs so the
+    # splash actually shows up at next boot.
+    case "$DISTRO" in
+        arch)
+            if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+                sudo plymouth-set-default-theme -R sgbu 2>/dev/null || {
+                    sudo plymouth-set-default-theme sgbu 2>/dev/null || true
+                    command -v mkinitcpio >/dev/null && sudo mkinitcpio -P 2>/dev/null || true
+                }
+            fi
+            if [ -f /etc/mkinitcpio.conf ] && ! grep -q '\bplymouth\b' /etc/mkinitcpio.conf; then
+                sudo cp /etc/mkinitcpio.conf "/etc/mkinitcpio.conf.bak.$(date +%s)"
+                sudo sed -i 's/\(HOOKS=.*base udev\)/\1 plymouth/' /etc/mkinitcpio.conf
+                sudo mkinitcpio -P 2>/dev/null || true
+            fi
+            ;;
+        debian)
+            if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+                sudo plymouth-set-default-theme -R sgbu 2>/dev/null || true
+            else
+                sudo update-alternatives --install /usr/share/plymouth/themes/default.plymouth \
+                    default.plymouth "$THEME_DIR/sgbu.plymouth" 100 2>/dev/null || true
+                sudo update-alternatives --set default.plymouth "$THEME_DIR/sgbu.plymouth" 2>/dev/null || true
+            fi
+            command -v update-initramfs >/dev/null && sudo update-initramfs -u 2>/dev/null || true
+            ;;
+        gentoo)
+            echo -e "${YELLOW}Gentoo: plymouth theme files installed to $THEME_DIR.${NC}"
+            echo -e "${YELLOW}Set it with: plymouth-set-default-theme -R sgbu (needs an initramfs, e.g. dracut/genkernel).${NC}"
+            ;;
+    esac
+
+    # Make sure the kernel actually boots with a splash (adds 'splash quiet'
+    # to GRUB if present; best-effort, backs up first, never fatal).
+    if [ -f /etc/default/grub ]; then
+        sudo cp /etc/default/grub "/etc/default/grub.bak.$(date +%s)"
+        if ! grep -q 'splash' /etc/default/grub; then
+            sudo sed -i 's/^\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"/\1 splash quiet"/' /etc/default/grub
+        fi
+        if command -v update-grub >/dev/null 2>&1; then
+            sudo update-grub 2>/dev/null || true
+        elif command -v grub-mkconfig >/dev/null 2>&1; then
+            sudo grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
+        fi
+    elif [ -d /boot/loader/entries ]; then
+        for entry in /boot/loader/entries/*.conf; do
+            [ -f "$entry" ] || continue
+            grep -q 'splash' "$entry" || {
+                sudo cp "$entry" "${entry}.bak.$(date +%s)"
+                sudo sed -i '/^options /s/$/ splash quiet/' "$entry"
+            }
+        done
+    else
+        echo -e "${YELLOW}!${NC} Couldn't detect GRUB or systemd-boot automatically."
+        echo -e "${YELLOW}!${NC} Add 'splash quiet' to your kernel command line manually to see the splash at boot."
+    fi
+
+    echo -e "${GREEN}✓${NC} Plymouth splash 'sgbu' installed using $LOGO"
+}
+setup_plymouth_splash
+
+# -------------------------------
 # 7. UINPUT & PERMISSIONS
 # -------------------------------
 echo -e "${YELLOW}Configuring uinput permissions...${NC}"
@@ -373,17 +531,23 @@ sudo udevadm trigger || true
 # 8. CONTROLLER MAPPER (Python)
 # -------------------------------
 echo -e "${YELLOW}Creating Controller Mapper...${NC}"
-sudo tee "$PS3_PYTHON" >/dev/null << 'EOF'
+sudo tee "$GAMEPAD_PYTHON" >/dev/null << 'EOF'
 #!/usr/bin/env python3
 '''
 created BY marinP/stuffbymax
 description: Gamepad to keyboard mapper - supports PS3, PS4, PS5, Xbox 360, Xbox One, Xbox Series X/S
+             Renamed from ps3_to_keys.py -> gamepad_to_keys.py (it maps every pad, not just PS3).
 License: MIT
-version: 0.0.4
+version: 0.0.5
+
+NOTE: This no longer depends on the separate "uinput" python package (AUR-only
+on Arch). python-evdev ships its own device-emission class, evdev.UInput,
+which is all we need to synthesize key events. Only python-evdev is required
+now, and it's in the official repos on every supported distro.
 '''
 
 import evdev
-import uinput
+from evdev import UInput, ecodes as e
 import sys
 import time
 
@@ -401,45 +565,60 @@ EXCLUDE_NAMES = [
 ]
 
 BTN_MAP_PS3 = {
-    304: uinput.KEY_ENTER, 305: uinput.KEY_ESC, 307: uinput.KEY_SPACE, 308: uinput.KEY_BACKSPACE,
-    544: uinput.KEY_UP, 545: uinput.KEY_DOWN, 546: uinput.KEY_LEFT, 547: uinput.KEY_RIGHT,
-    310: uinput.KEY_TAB, 311: uinput.KEY_F1, 312: uinput.KEY_F2, 313: uinput.KEY_F3,
-    314: uinput.KEY_F4, 315: uinput.KEY_F5, 316: uinput.KEY_F6, 317: uinput.KEY_F7, 318: uinput.KEY_F8,
+    304: e.KEY_ENTER, 305: e.KEY_ESC, 307: e.KEY_SPACE, 308: e.KEY_BACKSPACE,
+    544: e.KEY_UP, 545: e.KEY_DOWN, 546: e.KEY_LEFT, 547: e.KEY_RIGHT,
+    310: e.KEY_TAB, 311: e.KEY_F1, 312: e.KEY_F2, 313: e.KEY_F3,
+    314: e.KEY_F4, 315: e.KEY_F5, 316: e.KEY_F6, 317: e.KEY_F7, 318: e.KEY_F8,
 }
 
 BTN_MAP_PS4 = {
-    304: uinput.KEY_ENTER, 305: uinput.KEY_ESC, 307: uinput.KEY_SPACE, 308: uinput.KEY_BACKSPACE,
-    310: uinput.KEY_TAB, 311: uinput.KEY_F1, 312: uinput.KEY_F2, 313: uinput.KEY_F3,
-    314: uinput.KEY_F4, 315: uinput.KEY_F5, 316: uinput.KEY_F6, 317: uinput.KEY_F7,
-    318: uinput.KEY_F8, 319: uinput.KEY_F9,
+    304: e.KEY_ENTER, 305: e.KEY_ESC, 307: e.KEY_SPACE, 308: e.KEY_BACKSPACE,
+    310: e.KEY_TAB, 311: e.KEY_F1, 312: e.KEY_F2, 313: e.KEY_F3,
+    314: e.KEY_F4, 315: e.KEY_F5, 316: e.KEY_F6, 317: e.KEY_F7,
+    318: e.KEY_F8, 319: e.KEY_F9,
 }
 
 BTN_MAP_PS5 = {
-    304: uinput.KEY_ENTER, 305: uinput.KEY_ESC, 307: uinput.KEY_SPACE, 308: uinput.KEY_BACKSPACE,
-    310: uinput.KEY_TAB, 311: uinput.KEY_F1, 312: uinput.KEY_F2, 313: uinput.KEY_F3,
-    314: uinput.KEY_F4, 315: uinput.KEY_F5, 316: uinput.KEY_F6, 317: uinput.KEY_F7,
-    318: uinput.KEY_F8, 319: uinput.KEY_F9, 320: uinput.KEY_F10,
+    304: e.KEY_ENTER, 305: e.KEY_ESC, 307: e.KEY_SPACE, 308: e.KEY_BACKSPACE,
+    310: e.KEY_TAB, 311: e.KEY_F1, 312: e.KEY_F2, 313: e.KEY_F3,
+    314: e.KEY_F4, 315: e.KEY_F5, 316: e.KEY_F6, 317: e.KEY_F7,
+    318: e.KEY_F8, 319: e.KEY_F9, 320: e.KEY_F10,
 }
 
 BTN_MAP_XBOX360 = {
-    304: uinput.KEY_ENTER, 305: uinput.KEY_ESC, 307: uinput.KEY_SPACE, 308: uinput.KEY_BACKSPACE,
-    310: uinput.KEY_TAB, 311: uinput.KEY_F1,
-    314: uinput.KEY_F4, 315: uinput.KEY_F5, 316: uinput.KEY_F6, 317: uinput.KEY_F7, 318: uinput.KEY_F8,
+    304: e.KEY_ENTER, 305: e.KEY_ESC, 307: e.KEY_SPACE, 308: e.KEY_BACKSPACE,
+    310: e.KEY_TAB, 311: e.KEY_F1,
+    314: e.KEY_F4, 315: e.KEY_F5, 316: e.KEY_F6, 317: e.KEY_F7, 318: e.KEY_F8,
 }
 
 BTN_MAP_XBOXONE = {
-    304: uinput.KEY_ENTER, 305: uinput.KEY_ESC, 307: uinput.KEY_SPACE, 308: uinput.KEY_BACKSPACE,
-    310: uinput.KEY_TAB, 311: uinput.KEY_F1,
-    314: uinput.KEY_F4, 315: uinput.KEY_F5, 316: uinput.KEY_F6, 317: uinput.KEY_F7,
-    318: uinput.KEY_F8, 706: uinput.KEY_F9,
+    304: e.KEY_ENTER, 305: e.KEY_ESC, 307: e.KEY_SPACE, 308: e.KEY_BACKSPACE,
+    310: e.KEY_TAB, 311: e.KEY_F1,
+    314: e.KEY_F4, 315: e.KEY_F5, 316: e.KEY_F6, 317: e.KEY_F7,
+    318: e.KEY_F8, 706: e.KEY_F9,
 }
 
 BTN_MAP_XBOXSERIES = {
-    304: uinput.KEY_ENTER, 305: uinput.KEY_ESC, 307: uinput.KEY_SPACE, 308: uinput.KEY_BACKSPACE,
-    310: uinput.KEY_TAB, 311: uinput.KEY_F1,
-    314: uinput.KEY_F4, 315: uinput.KEY_F5, 316: uinput.KEY_F6, 317: uinput.KEY_F7,
-    318: uinput.KEY_F8, 706: uinput.KEY_F9, 167: uinput.KEY_F10,
+    304: e.KEY_ENTER, 305: e.KEY_ESC, 307: e.KEY_SPACE, 308: e.KEY_BACKSPACE,
+    310: e.KEY_TAB, 311: e.KEY_F1,
+    314: e.KEY_F4, 315: e.KEY_F5, 316: e.KEY_F6, 317: e.KEY_F7,
+    318: e.KEY_F8, 706: e.KEY_F9, 167: e.KEY_F10,
 }
+
+# Default axis deadzone; can be overridden per-device by the stick-drift
+# calibration tool (writes /etc/sgbu/<device-name>.deadzone as a plain int).
+DEFAULT_AXIS_THRESHOLD = 16000
+CALIBRATION_DIR = "/etc/sgbu"
+
+def load_deadzone(device_name):
+    import os, re
+    safe = re.sub(r'[^a-zA-Z0-9_-]', '_', device_name)
+    path = os.path.join(CALIBRATION_DIR, f"{safe}.deadzone")
+    try:
+        with open(path) as f:
+            return int(f.read().strip())
+    except Exception:
+        return DEFAULT_AXIS_THRESHOLD
 
 def find_controller():
     devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
@@ -490,10 +669,9 @@ def detect_controller_type(device):
         print(f"[SGBU] Unknown controller '{device.name}', using PS4 button map")
         return "ps4", BTN_MAP_PS4
 
-AXIS_THRESHOLD = 16000
 stick_state = {"left_x": 0, "left_y": 0}
 
-def handle_analog(ui, code, value):
+def handle_analog(ui, code, value, threshold):
     if code == evdev.ecodes.ABS_X:
         stick_state["left_x"] = value
     elif code == evdev.ecodes.ABS_Y:
@@ -502,29 +680,29 @@ def handle_analog(ui, code, value):
         return
     lx = stick_state["left_x"]
     ly = stick_state["left_y"]
-    if lx < -AXIS_THRESHOLD:
-        ui.emit(uinput.KEY_LEFT, 1); ui.emit(uinput.KEY_LEFT, 0)
-    elif lx > AXIS_THRESHOLD:
-        ui.emit(uinput.KEY_RIGHT, 1); ui.emit(uinput.KEY_RIGHT, 0)
-    if ly < -AXIS_THRESHOLD:
-        ui.emit(uinput.KEY_UP, 1); ui.emit(uinput.KEY_UP, 0)
-    elif ly > AXIS_THRESHOLD:
-        ui.emit(uinput.KEY_DOWN, 1); ui.emit(uinput.KEY_DOWN, 0)
+    if lx < -threshold:
+        ui.write(e.EV_KEY, e.KEY_LEFT, 1); ui.write(e.EV_KEY, e.KEY_LEFT, 0); ui.syn()
+    elif lx > threshold:
+        ui.write(e.EV_KEY, e.KEY_RIGHT, 1); ui.write(e.EV_KEY, e.KEY_RIGHT, 0); ui.syn()
+    if ly < -threshold:
+        ui.write(e.EV_KEY, e.KEY_UP, 1); ui.write(e.EV_KEY, e.KEY_UP, 0); ui.syn()
+    elif ly > threshold:
+        ui.write(e.EV_KEY, e.KEY_DOWN, 1); ui.write(e.EV_KEY, e.KEY_DOWN, 0); ui.syn()
 
 def handle_hat(ui, code, value):
     if code == evdev.ecodes.ABS_HAT0Y:
         if value == -1:
-            ui.emit(uinput.KEY_UP, 1); ui.emit(uinput.KEY_UP, 0)
+            ui.write(e.EV_KEY, e.KEY_UP, 1); ui.write(e.EV_KEY, e.KEY_UP, 0); ui.syn()
         elif value == 1:
-            ui.emit(uinput.KEY_DOWN, 1); ui.emit(uinput.KEY_DOWN, 0)
+            ui.write(e.EV_KEY, e.KEY_DOWN, 1); ui.write(e.EV_KEY, e.KEY_DOWN, 0); ui.syn()
     elif code == evdev.ecodes.ABS_HAT0X:
         if value == -1:
-            ui.emit(uinput.KEY_LEFT, 1); ui.emit(uinput.KEY_LEFT, 0)
+            ui.write(e.EV_KEY, e.KEY_LEFT, 1); ui.write(e.EV_KEY, e.KEY_LEFT, 0); ui.syn()
         elif value == 1:
-            ui.emit(uinput.KEY_RIGHT, 1); ui.emit(uinput.KEY_RIGHT, 0)
+            ui.write(e.EV_KEY, e.KEY_RIGHT, 1); ui.write(e.EV_KEY, e.KEY_RIGHT, 0); ui.syn()
 
 def main():
-    print("[SGBU] Controller mapper v0.0.4 starting...")
+    print("[SGBU] gamepad_to_keys.py v0.0.5 starting...")
     print("[SGBU] Supports: PS3 / PS4 / PS5 / Xbox 360 / Xbox One / Xbox Series X|S")
     device = None
     for attempt in range(10):
@@ -538,20 +716,27 @@ def main():
         sys.exit(1)
     print(f"[SGBU] Using: {device.path} — {device.name}")
     ctrl_type, btn_map = detect_controller_type(device)
-    events = [
-        uinput.KEY_ENTER, uinput.KEY_ESC, uinput.KEY_BACKSPACE, uinput.KEY_SPACE,
-        uinput.KEY_UP, uinput.KEY_DOWN, uinput.KEY_LEFT, uinput.KEY_RIGHT,
-        uinput.KEY_TAB,
-        uinput.KEY_F1, uinput.KEY_F2, uinput.KEY_F3, uinput.KEY_F4,
-        uinput.KEY_F5, uinput.KEY_F6, uinput.KEY_F7, uinput.KEY_F8,
-        uinput.KEY_F9, uinput.KEY_F10,
-    ]
+    threshold = load_deadzone(device.name)
+    print(f"[SGBU] Analog deadzone: {threshold} (run stick-calibrate.py to tune)")
+
+    # evdev's own UInput class replaces the old separate "uinput" package.
+    capabilities = {
+        e.EV_KEY: [
+            e.KEY_ENTER, e.KEY_ESC, e.KEY_BACKSPACE, e.KEY_SPACE,
+            e.KEY_UP, e.KEY_DOWN, e.KEY_LEFT, e.KEY_RIGHT,
+            e.KEY_TAB,
+            e.KEY_F1, e.KEY_F2, e.KEY_F3, e.KEY_F4,
+            e.KEY_F5, e.KEY_F6, e.KEY_F7, e.KEY_F8,
+            e.KEY_F9, e.KEY_F10,
+        ]
+    }
     try:
-        ui = uinput.Device(events)
-    except Exception as e:
-        print(f"[SGBU] Failed to create uinput device: {e}")
-        print("[SGBU] Make sure uinput module is loaded: sudo modprobe uinput")
+        ui = UInput(capabilities, name="sgbu-gamepad-to-keys")
+    except Exception as ex:
+        print(f"[SGBU] Failed to create uinput device: {ex}")
+        print("[SGBU] Make sure the uinput kernel module is loaded: sudo modprobe uinput")
         sys.exit(1)
+
     try:
         device.grab()
         print(f"[SGBU] Controller grabbed ({ctrl_type} mode). Press Ctrl+C to stop.")
@@ -559,26 +744,188 @@ def main():
             if event.type == evdev.ecodes.EV_KEY:
                 key = btn_map.get(event.code)
                 if key is not None:
-                    ui.emit(key, event.value)
+                    ui.write(e.EV_KEY, key, event.value)
+                    ui.syn()
             elif event.type == evdev.ecodes.EV_ABS:
                 if event.code in (evdev.ecodes.ABS_HAT0X, evdev.ecodes.ABS_HAT0Y):
                     handle_hat(ui, event.code, event.value)
                 elif event.code in (evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y):
-                    handle_analog(ui, event.code, event.value)
+                    handle_analog(ui, event.code, event.value, threshold)
     except KeyboardInterrupt:
         print("\n[SGBU] Mapper stopped.")
-    except Exception as e:
-        print(f"[SGBU] Error: {e}")
+    except Exception as ex:
+        print(f"[SGBU] Error: {ex}")
     finally:
         try:
             device.ungrab()
         except Exception:
             pass
+        ui.close()
 
 if __name__ == "__main__":
     main()
 EOF
-sudo chmod +x "$PS3_PYTHON"
+sudo chmod +x "$GAMEPAD_PYTHON"
+
+# -------------------------------
+# 8B. STICK DRIFT CALIBRATION TOOL
+# -------------------------------
+echo -e "${YELLOW}Creating Stick Drift Calibration Tool...${NC}"
+sudo mkdir -p /etc/sgbu
+STICK_CALIBRATE="/usr/local/bin/stick-calibrate.py"
+sudo tee "$STICK_CALIBRATE" >/dev/null << 'EOF'
+#!/usr/bin/env python3
+'''
+created BY marinP/stuffbymax
+description: Samples a gamepad's analog stick at rest, works out how far it
+             drifts from center, and writes a per-device deadzone that
+             gamepad_to_keys.py picks up automatically. Also offers to patch
+             the matching AntiMicroX profile's <deadZone> values so both
+             tools agree on the same dead zone.
+License: MIT
+version: 0.0.1
+'''
+
+import evdev
+import glob
+import os
+import re
+import sys
+import time
+
+CALIBRATION_DIR = "/etc/sgbu"
+SAMPLE_SECONDS = 4
+SAFETY_MARGIN = 1.5   # multiply observed drift by this to leave headroom
+MIN_DEADZONE = 2000
+MAX_DEADZONE = 20000
+
+EXCLUDE_NAMES = ["touchpad", "motion", "accelerometer", "gyro", "sensor", "rumble", "battery"]
+
+
+def find_gamepads():
+    pads = []
+    for path in evdev.list_devices():
+        dev = evdev.InputDevice(path)
+        name_lower = dev.name.lower()
+        if any(ex in name_lower for ex in EXCLUDE_NAMES):
+            continue
+        caps = dev.capabilities()
+        if evdev.ecodes.EV_ABS in caps:
+            abs_codes = [c for c, _ in caps[evdev.ecodes.EV_ABS]]
+            if evdev.ecodes.ABS_X in abs_codes and evdev.ecodes.ABS_Y in abs_codes:
+                pads.append(dev)
+    return pads
+
+
+def sample_axis_drift(dev, seconds=SAMPLE_SECONDS):
+    print(f"[Calibrate] Sampling '{dev.name}' for {seconds}s.")
+    print("[Calibrate] IMPORTANT: let go of the sticks now, don't touch them.")
+    time.sleep(1.5)
+    max_dev = {evdev.ecodes.ABS_X: 0, evdev.ecodes.ABS_Y: 0}
+    absinfo = dict(dev.capabilities().get(evdev.ecodes.EV_ABS, []))
+    centers = {}
+    for code in (evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y):
+        info = absinfo.get(code)
+        centers[code] = (info.min + info.max) // 2 if info else 0
+
+    end_time = time.time() + seconds
+    dev.grab()
+    try:
+        for event in dev.read_loop():
+            if event.type == evdev.ecodes.EV_ABS and event.code in max_dev:
+                deviation = abs(event.value - centers[event.code])
+                if deviation > max_dev[event.code]:
+                    max_dev[event.code] = deviation
+            if time.time() > end_time:
+                break
+    finally:
+        try:
+            dev.ungrab()
+        except Exception:
+            pass
+
+    observed = max(max_dev.values())
+    print(f"[Calibrate] Observed max drift: {observed} raw units")
+    return observed
+
+
+def suggested_deadzone(observed):
+    value = int(observed * SAFETY_MARGIN)
+    return max(MIN_DEADZONE, min(MAX_DEADZONE, value))
+
+
+def write_deadzone(device_name, deadzone):
+    os.makedirs(CALIBRATION_DIR, exist_ok=True)
+    safe = re.sub(r'[^a-zA-Z0-9_-]', '_', device_name)
+    path = os.path.join(CALIBRATION_DIR, f"{safe}.deadzone")
+    with open(path, "w") as f:
+        f.write(str(deadzone))
+    print(f"[Calibrate] Wrote {path} = {deadzone} (used by gamepad_to_keys.py)")
+    return path
+
+
+def patch_antimicrox_profiles(deadzone):
+    # AntiMicroX raw deadzone range is roughly 0-32767, same order of
+    # magnitude as evdev's, so we reuse the value directly.
+    home = os.path.expanduser("~")
+    # stick-calibrate.py normally runs via sudo from the boot menu; fall back
+    # to the invoking user's home if SUDO_USER is set so we patch the right profile.
+    sudo_user = os.environ.get("SUDO_USER")
+    if sudo_user:
+        home = os.path.expanduser(f"~{sudo_user}")
+
+    profiles = glob.glob(os.path.join(home, ".config", "antimicrox", "*.amgp"))
+    profiles += glob.glob(os.path.join(home, ".config", "antimicrox", "*.gamecontroller.amgp"))
+    if not profiles:
+        print("[Calibrate] No AntiMicroX profiles found, skipping profile patch.")
+        return
+
+    for profile in profiles:
+        answer = input(f"[Calibrate] Patch deadZone values in '{profile}'? [y/N]: ").strip().lower()
+        if answer != "y":
+            continue
+        backup = f"{profile}.bak.{int(time.time())}"
+        with open(profile, "r") as f:
+            content = f.read()
+        with open(backup, "w") as f:
+            f.write(content)
+        new_content = re.sub(r"<deadZone>\d+</deadZone>", f"<deadZone>{deadzone}</deadZone>", content)
+        with open(profile, "w") as f:
+            f.write(new_content)
+        print(f"[Calibrate] Patched {profile} (backup saved to {backup})")
+
+
+def main():
+    pads = find_gamepads()
+    if not pads:
+        print("[Calibrate] No gamepad with analog sticks found.")
+        sys.exit(1)
+
+    if len(pads) == 1:
+        dev = pads[0]
+    else:
+        print("[Calibrate] Multiple gamepads found:")
+        for i, p in enumerate(pads):
+            print(f"  {i+1}) {p.name} ({p.path})")
+        choice = input("Select controller number: ").strip()
+        try:
+            dev = pads[int(choice) - 1]
+        except (ValueError, IndexError):
+            print("[Calibrate] Invalid selection.")
+            sys.exit(1)
+
+    observed = sample_axis_drift(dev)
+    deadzone = suggested_deadzone(observed)
+    print(f"[Calibrate] Suggested deadzone: {deadzone}")
+    write_deadzone(dev.name, deadzone)
+    patch_antimicrox_profiles(deadzone)
+    print("[Calibrate] Done. Restart the gamepad mapper / AntiMicroX for changes to take effect.")
+
+
+if __name__ == "__main__":
+    main()
+EOF
+sudo chmod +x "$STICK_CALIBRATE"
 
 # -------------------------------
 # 9. BOOT MENU
@@ -595,7 +942,27 @@ NC='\033[0m'
 
 DIALOG_TOOL="dialog"
 command -v dialog >/dev/null || DIALOG_TOOL="whiptail"
-MAPPER="/usr/local/bin/ps3_to_keys.py"
+MAPPER="/usr/local/bin/gamepad_to_keys.py"
+CALIBRATE="/usr/local/bin/stick-calibrate.py"
+SPLASH_FILE="/etc/sgbu/splash.txt"
+
+# -------------------------------
+# SPLASH SCREEN
+# -------------------------------
+show_splash() {
+    clear
+    if [ -f "$SPLASH_FILE" ]; then
+        cat "$SPLASH_FILE"
+    elif command -v figlet >/dev/null; then
+        figlet -f slant "SGBU" 2>/dev/null || echo "SGBU"
+    else
+        echo "============================"
+        echo "   Simple Game Boot Utility "
+        echo "============================"
+    fi
+    echo -e "${CYAN}Simple Game Boot Utility${NC}"
+    sleep 1
+}
 
 detect_sessions() {
     for f in /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop; do
@@ -664,7 +1031,7 @@ get_system_info() {
 launch_steam_xinitrc() {
     local steam_flag="$1"
 
-    pkill -f ps3_to_keys.py || true
+    pkill -f gamepad_to_keys.py || true
 
     mkdir -p "$HOME/.config/openbox"
     cat > "$HOME/.config/openbox/rc.xml" <<'OBCONF'
@@ -767,6 +1134,8 @@ XINITRC
     [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
 }
 
+show_splash
+
 # Start mapper
 MAPPER_PID=""
 if [ -x "$MAPPER" ]; then
@@ -807,6 +1176,10 @@ while true; do
     ACTIONS+=("bluetooth")
     ((i++))
 
+    ITEMS+=($i "Calibrate Stick Drift")
+    ACTIONS+=("calibrate")
+    ((i++))
+
     ITEMS+=($i "Terminal")
     ACTIONS+=("shell")
     ((i++))
@@ -823,7 +1196,7 @@ while true; do
     ACTIONS+=("shutdown")
 
     SYSINFO=$(get_system_info)
-    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | v0.0.7-multi | $SYSINFO" \
+    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | v0.0.8-multi | $SYSINFO" \
         --menu "Select Action" 22 70 14 "${ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 0
 
     ACTION="${ACTIONS[$((CHOICE-1))]}"
@@ -883,6 +1256,18 @@ BTRC
 
     [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
     ;;
+
+        calibrate)
+            [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
+            clear
+            if [ -x "$CALIBRATE" ]; then
+                sudo "$CALIBRATE"
+            else
+                echo -e "${RED}stick-calibrate.py not found or not executable.${NC}"
+            fi
+            read -rp "Press Enter to return to the menu..."
+            [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
+            ;;
 
         session:*)
             [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
@@ -1012,6 +1397,24 @@ if [ "$AMGP_COUNT" -gt 0 ]; then
     echo -e "${GREEN}✓${NC} $AMGP_COUNT AntiMicroX profile(s) found in ~/.config/antimicrox"
 else
     echo -e "${YELLOW}!${NC} No AntiMicroX profile found (bundled config was not deployed)"
+fi
+
+echo -e "\n${CYAN}[Gamepad Mapper]${NC}"
+if [ -x /usr/local/bin/gamepad_to_keys.py ]; then
+    echo -e "${GREEN}✓${NC} gamepad_to_keys.py installed"
+else
+    echo -e "${RED}✗${NC} gamepad_to_keys.py missing"
+fi
+if python3 -c "import evdev" >/dev/null 2>&1; then
+    echo -e "${GREEN}✓${NC} python-evdev importable (provides both device reading AND evdev.UInput for writing - no separate uinput package needed)"
+else
+    echo -e "${RED}✗${NC} python-evdev not importable"
+fi
+CAL_COUNT=$(find /etc/sgbu -maxdepth 1 -type f -iname "*.deadzone" 2>/dev/null | wc -l)
+if [ "$CAL_COUNT" -gt 0 ]; then
+    echo -e "${GREEN}✓${NC} $CAL_COUNT stick-drift calibration profile(s) in /etc/sgbu"
+else
+    echo -e "${YELLOW}!${NC} No stick-drift calibration saved yet (run 'Calibrate Stick Drift' from the boot menu)"
 fi
 
 echo -e "\n${CYAN}[Input Devices]${NC}"
@@ -1161,9 +1564,17 @@ echo -e "   INSTALLATION COMPLETE"
 echo -e "   Distro: $DISTRO"
 echo -e "================================================${NC}"
 echo -e "${GREEN}✓${NC} Boot menu:   $BOOTMENU"
+echo -e "${GREEN}✓${NC} Gamepad mapper: $GAMEPAD_PYTHON (evdev only, no AUR uinput package needed)"
+echo -e "${GREEN}✓${NC} Stick drift calibration: $STICK_CALIBRATE (menu: 'Calibrate Stick Drift')"
 echo -e "${GREEN}✓${NC} Steam:       installed (GamepadUI enabled)"
 echo -e "${GREEN}✓${NC} Vulkan:      choice applied (option $VULKAN_CHOICE)"
 echo -e "${GREEN}✓${NC} Bluetooth:   enabled & started"
+echo -e "${GREEN}✓${NC} Splash:      drop custom ASCII art at /etc/sgbu/splash.txt, else figlet is used"
+if [ -f "$SCRIPT_DIR/sgbu_logo.png" ]; then
+    echo -e "${GREEN}✓${NC} Plymouth boot splash: installed from sgbu_logo.png (reboot to see it)"
+else
+    echo -e "${YELLOW}!${NC} Plymouth boot splash: skipped (no sgbu_logo.png found next to the script)"
+fi
 if [ -d "$CONF_DIR" ]; then
     echo -e "${GREEN}✓${NC} Bundled configs: deployed from $CONF_DIR"
 else
@@ -1178,8 +1589,8 @@ if [ "$DISTRO" = "gentoo" ]; then
     echo -e "${YELLOW}Gentoo notes:${NC}"
     echo "  - Check USE flags for mesa/vulkan in /etc/portage/package.use/"
     echo "  - If using OpenRC, verify autologin in /etc/inittab"
-    echo "  - python-uinput may need to be installed via pip if not in portage:"
-    echo "    pip install python-uinput"
+    echo "  - Only dev-python/evdev is required for gamepad mapping now (evdev.UInput"
+    echo "    handles event injection, no separate uinput package needed)."
 fi
 
 if [ "$DISTRO" = "debian" ]; then
