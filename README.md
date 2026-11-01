@@ -21,7 +21,7 @@ If you're starting fresh, **run `SGBU.sh`**.
 ## Features
 
 * **Automatic Boot Menu** (`bootmenu.sh`, installed to `/usr/local/bin/`)
-  Auto-detects installed apps/sessions and presents a PS3/XMB-inspired GAME OS menu on TTY1, organized into GAME, NETWORK, SYSTEM, and POWER entries.
+  Auto-detects installed apps/sessions and presents an XMB-style interface on TTY1: a horizontal row of PS3-inspired category icons with vertically navigable items beneath. Navigate categories with left/right and items with up/down; Enter selects.
 
 * **Multi-Distro Package Handling**
   Detects Arch (`pacman`), Debian/Ubuntu (`apt-get`), or Gentoo (`emerge`) and installs the right package names for each — base tools, Vulkan drivers, and Steam.
@@ -74,6 +74,8 @@ Run it **from inside the cloned repo** — the installer looks for `conf/` and `
 
 After reboot, the boot menu appears automatically on TTY1, showing all detected sessions and supported apps.
 
+To preview the XMB interface without installing the boot menu or launching anything, run `bash test_ui.sh` from the repository on a local terminal or an interactive SSH session.
+
 ---
 
 ## File Locations
@@ -81,6 +83,7 @@ After reboot, the boot menu appears automatically on TTY1, showing all detected 
 | File / Directory                | Purpose                                              |
 | -------------------------------- | ----------------------------------------------------- |
 | `/usr/local/bin/bootmenu.sh`      | Boot menu launcher script (auto-detects apps/sessions) |
+| `/usr/local/bin/sgbu-xmb-ui.sh`   | XMB-style terminal UI used by the boot menu           |
 | `/usr/local/bin/gamepad_to_keys.py` | Python gamepad-to-keyboard mapper                    |
 | `/usr/local/bin/diagnostic.sh`    | System diagnostics script                              |
 | `conf/retroarch/`                 | Bundled RetroArch config, deployed to `~/.config/retroarch` |

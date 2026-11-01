@@ -18,6 +18,7 @@ USER_NAME="$(whoami)"
 BOOTMENU="/usr/local/bin/bootmenu.sh"
 GAMEPAD_PYTHON="/usr/local/bin/gamepad_to_keys.py"
 DIAGNOSTIC="/usr/local/bin/diagnostic.sh"
+XMB_UI="/usr/local/bin/sgbu-xmb-ui.sh"
 LOG_FILE="$HOME/install_log.txt"
 
 # Directory this script lives in, and the bundled conf folder next to it
@@ -761,6 +762,7 @@ sudo chmod +x "$GAMEPAD_PYTHON"
 echo -e "${YELLOW}Creating Boot Menu...${NC}"
 sudo mkdir -p /etc/sgbu
 sudo rm -f /usr/local/bin/stick-calibrate.py
+sudo install -m 755 "$SCRIPT_DIR/xmb-ui.sh" "$XMB_UI"
 sudo tee "$BOOTMENU" >/dev/null << 'BOOTMENU_EOF'
 #!/usr/bin/env bash
 
@@ -770,38 +772,14 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-DIALOG_TOOL="dialog"
-command -v dialog >/dev/null || DIALOG_TOOL="whiptail"
 MAPPER="/usr/local/bin/gamepad_to_keys.py"
+XMB_UI="/usr/local/bin/sgbu-xmb-ui.sh"
 SPLASH_FILE="/etc/sgbu/splash.txt"
 MAPPER_PID=""
-DIALOGRC_FILE=""
-
-if [ "$DIALOG_TOOL" = "dialog" ]; then
-    DIALOGRC_FILE=$(mktemp)
-    cat > "$DIALOGRC_FILE" <<'DIALOGRC'
-use_colors = ON
-use_shadow = OFF
-screen_color = (WHITE,BLUE,ON)
-dialog_color = (WHITE,BLACK,OFF)
-title_color = (CYAN,BLACK,ON)
-border_color = (CYAN,BLACK,ON)
-menubox_color = (WHITE,BLACK,OFF)
-menubox_border_color = (CYAN,BLACK,ON)
-item_color = (WHITE,BLACK,OFF)
-item_selected_color = (BLACK,CYAN,ON)
-button_active_color = (BLACK,CYAN,ON)
-button_inactive_color = (WHITE,BLACK,OFF)
-DIALOGRC
-    export DIALOGRC="$DIALOGRC_FILE"
-fi
 
 cleanup() {
     if [ -n "$MAPPER_PID" ]; then
         kill "$MAPPER_PID" 2>/dev/null || true
-    fi
-    if [ -n "$DIALOGRC_FILE" ]; then
-        rm -f -- "$DIALOGRC_FILE"
     fi
 }
 trap cleanup EXIT
@@ -838,54 +816,6 @@ detect_steam() {
         [ -x "$steam_path" ] && echo "$steam_path" && return 0
     done
     return 1
-}
-
-get_system_info() {
-    # 1. Memory Usage
-    local mem
-    mem=$(free -h --si 2>/dev/null | awk '/^Mem:/ {print $3 "/" $2}' | sed 's/i//g')
-
-    # 2. CPU Model (cleaned of extra spaces and trademarks)
-    local cpu
-    cpu=$(awk -F: '/^model name/ {print $2; exit}' /proc/cpuinfo | sed 's/^[ \t]*//;s/(R)//g;s/(TM)//g;s/  */ /g')
-    # Shorten CPU name if it's too long
-    cpu=$(echo "$cpu" | cut -c 1-20)
-
-    # 3. CPU Temperature (tries sensors, falls back to sysfs)
-    local temp="N/A"
-    if command -v sensors >/dev/null; then
-        temp=$(sensors 2>/dev/null | awk '/(Package id 0|Core 0|Tctl|temp1):/ {print $2; exit}' | tr -d '+')
-    elif [ -f /sys/class/thermal/thermal_zone0/temp ]; then
-        temp="$(($(cat /sys/class/thermal/thermal_zone0/temp) / 1000))°C"
-    fi
-
-    # 4. GPU Info (briefly identifies the driver/chip)
-    local gpu
-    gpu=$(lspci | grep -i 'vga\|display\|3d' | head -n1 | awk -F': ' '{print $2}' | awk '{print $1,$2}')
-
-    # 5. IP Address (Local)
-    local ip
-    ip=$(ip route get 1.1.1.1 | awk '{print $7; exit}')
-    [ -z "$ip" ] && ip="Offline"
-
-    # 6. Storage Usage (Root partition)
-    local disk
-    disk=$(df -h / | awk 'NR==2 {print $5}')
-
-    # 7. Battery (Optional - checks for BAT0 or BAT1)
-    local bat_str=""
-    if [ -d /sys/class/power_supply/BAT0 ] || [ -d /sys/class/power_supply/BAT1 ]; then
-        local bat_path="/sys/class/power_supply/BAT0"
-        [ ! -d "$bat_path" ] && bat_path="/sys/class/power_supply/BAT1"
-        local cap=$(cat "$bat_path/capacity" 2>/dev/null)
-        local stat=$(cat "$bat_path/status" 2>/dev/null)
-        # Simplify status (Charging -> CHG, Discharging -> DIS)
-        [ "$stat" == "Charging" ] && stat="+" || stat="-"
-        bat_str=" | Bat: $cap% [$stat]"
-    fi
-
-    # Return a single line for the Dialog Backtitle
-    echo "CPU: $cpu ($temp) | Mem: $mem | Disk: $disk | IP: $ip$bat_str"
 }
 
 launch_steam_xinitrc() {
@@ -1008,52 +938,48 @@ while true; do
     i=1
 
     if command -v retroarch >/dev/null; then
-        ITEMS+=($i "GAME     - RetroArch")
+        ITEMS+=("$i" "GAME|RetroArch")
         ACTIONS+=("retroarch")
         ((i++))
     fi
 
     STEAM=$(detect_steam || true)
     if [ -n "$STEAM" ]; then
-        ITEMS+=($i "GAME     - Steam (GamepadUI)")
+        ITEMS+=("$i" "GAME|Steam (GamepadUI)")
         ACTIONS+=("steam_gamepadui:$STEAM")
         ((i++))
 
-        ITEMS+=($i "GAME     - Steam (Desktop Mode)")
+        ITEMS+=("$i" "GAME|Steam (Desktop Mode)")
         ACTIONS+=("steam_normal:$STEAM")
         ((i++))
     fi
 
     while IFS='|' read -r name exec_cmd; do
-        ITEMS+=($i "SYSTEM   - Desktop: $name")
+        ITEMS+=("$i" "SETTINGS|Desktop: $name")
         ACTIONS+=("session:$exec_cmd")
         ((i++))
     done < <(detect_sessions)
 
-    ITEMS+=($i "NETWORK  - Bluetooth Manager")
+    ITEMS+=("$i" "NETWORK|Bluetooth Manager")
     ACTIONS+=("bluetooth")
     ((i++))
 
-    ITEMS+=($i "SYSTEM   - Terminal")
+    ITEMS+=("$i" "SETTINGS|Terminal")
     ACTIONS+=("shell")
     ((i++))
 
-    ITEMS+=($i "SYSTEM   - Run Diagnostics")
+    ITEMS+=("$i" "SETTINGS|Run Diagnostics")
     ACTIONS+=("diagnostic")
     ((i++))
 
-    ITEMS+=($i "POWER    - Reboot")
+    ITEMS+=("$i" "USERS|Restart System")
     ACTIONS+=("reboot")
     ((i++))
 
-    ITEMS+=($i "POWER    - Shutdown")
+    ITEMS+=("$i" "USERS|Turn Off System")
     ACTIONS+=("shutdown")
 
-    SYSINFO=$(get_system_info)
-    CHOICE=$($DIALOG_TOOL --backtitle "PLAYSTATION 3 - GAME OS | SGBU | $SYSINFO" \
-        --title "XMB - GAME OS" \
-        --menu "Choose an experience. Navigate with the D-pad or arrow keys." \
-        22 76 14 "${ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 0
+    CHOICE=$("$XMB_UI" --menu "${ITEMS[@]}") || exit 0
 
     ACTION="${ACTIONS[$((CHOICE-1))]}"
 

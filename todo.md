@@ -8,4 +8,4 @@
 6. rewire the gamepad script to no longer include  uinput it hussle to install it on arch ✅
 7. custom spalsh screen ✅
 8. remove stick-drift calibration tooling from the active installer ✅
-9. relesed it on aur or custom arch ISO with the script installed not decided yet
+9. released it as a pkg
