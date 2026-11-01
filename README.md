@@ -21,14 +21,7 @@ If you're starting fresh, **run `SGBU.sh`**.
 ## Features
 
 * **Automatic Boot Menu** (`bootmenu.sh`, installed to `/usr/local/bin/`)
-  Auto-detects installed apps/sessions and shows a menu on TTY1:
-  1. RetroArch (fullscreen)
-  2. Steam — GamepadUI *and* Normal Mode (if installed)
-  3. Detected desktop sessions (Xorg/Wayland `.desktop` entries)
-  4. Bluetooth Manager
-  5. Terminal
-  6. Run Diagnostics
-  7. Reboot / Shutdown
+  Auto-detects installed apps/sessions and presents a PS3/XMB-inspired GAME OS menu on TTY1, organized into GAME, NETWORK, SYSTEM, and POWER entries.
 
 * **Multi-Distro Package Handling**
   Detects Arch (`pacman`), Debian/Ubuntu (`apt-get`), or Gentoo (`emerge`) and installs the right package names for each — base tools, Vulkan drivers, and Steam.
@@ -37,7 +30,7 @@ If you're starting fresh, **run `SGBU.sh`**.
   Interactive menu to pick AMD (amdvlk or RADV/mesa), NVIDIA (proprietary or open kernel module), or Intel drivers at install time.
 
 * **Gamepad Support**
-  `ps3_to_keys.py` maps PS3, PS4, PS5, Xbox 360/One/Series, and generic controllers to keyboard keys for menu navigation, with analog-stick D-pad emulation.
+  `gamepad_to_keys.py` maps PS3, PS4, PS5, Xbox 360/One/Series, and generic controllers to keyboard keys for menu navigation, with analog-stick D-pad emulation.
 
 * **Bundled Configs (RetroArch / AntiMicroX)**
   If you clone the full repo, the installer automatically deploys:
@@ -63,7 +56,7 @@ If you're starting fresh, **run `SGBU.sh`**.
 
 * Arch Linux, Debian/Ubuntu, or Gentoo (or a close derivative)
 * `sudo` access
-* Python 3 with `evdev` and `uinput` modules (on Arch, install `python-evdev`/`python-uinput` manually if AUR access is unavailable)
+* Python 3 with `evdev` (on Arch, install `python-evdev` if it is not available)
 
 ---
 
@@ -88,7 +81,7 @@ After reboot, the boot menu appears automatically on TTY1, showing all detected 
 | File / Directory                | Purpose                                              |
 | -------------------------------- | ----------------------------------------------------- |
 | `/usr/local/bin/bootmenu.sh`      | Boot menu launcher script (auto-detects apps/sessions) |
-| `/usr/local/bin/ps3_to_keys.py`   | Python gamepad-to-keyboard mapper                      |
+| `/usr/local/bin/gamepad_to_keys.py` | Python gamepad-to-keyboard mapper                    |
 | `/usr/local/bin/diagnostic.sh`    | System diagnostics script                              |
 | `conf/retroarch/`                 | Bundled RetroArch config, deployed to `~/.config/retroarch` |
 | `conf/antimicrox/`                | Bundled AntiMicroX profile(s), deployed to `~/.config/antimicrox` |
@@ -105,7 +98,7 @@ After reboot, the boot menu appears automatically on TTY1, showing all detected 
 * **PS3 / PS4 / PS5**: Cross/X → Enter, Circle → Escape, Square → Backspace, Triangle → Space, D-Pad → Arrows
 * **Xbox / Generic**: A → Enter, B → Escape, X → Backspace, Y → Space, D-Pad → Arrows
 
-Mappings can be modified in `ps3_to_keys.py`. Menu navigation also works via the left analog stick.
+Mappings can be modified in `gamepad_to_keys.py`. Menu navigation also works via the left analog stick.
 
 ---
 
@@ -128,4 +121,3 @@ See `todo.md` for planned work.
 ## Screenshots
 
 <img width="1912" height="1005" alt="image" src="https://github.com/user-attachments/assets/8c392087-8ba0-4137-b247-f74bbbd7fa5b" />
-

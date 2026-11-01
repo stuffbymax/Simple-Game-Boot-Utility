@@ -605,20 +605,8 @@ BTN_MAP_XBOXSERIES = {
     318: e.KEY_F8, 706: e.KEY_F9, 167: e.KEY_F10,
 }
 
-# Default axis deadzone; can be overridden per-device by the stick-drift
-# calibration tool (writes /etc/sgbu/<device-name>.deadzone as a plain int).
+# Default axis threshold for analog-stick menu navigation.
 DEFAULT_AXIS_THRESHOLD = 16000
-CALIBRATION_DIR = "/etc/sgbu"
-
-def load_deadzone(device_name):
-    import os, re
-    safe = re.sub(r'[^a-zA-Z0-9_-]', '_', device_name)
-    path = os.path.join(CALIBRATION_DIR, f"{safe}.deadzone")
-    try:
-        with open(path) as f:
-            return int(f.read().strip())
-    except Exception:
-        return DEFAULT_AXIS_THRESHOLD
 
 def find_controller():
     devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
@@ -716,8 +704,8 @@ def main():
         sys.exit(1)
     print(f"[SGBU] Using: {device.path} — {device.name}")
     ctrl_type, btn_map = detect_controller_type(device)
-    threshold = load_deadzone(device.name)
-    print(f"[SGBU] Analog deadzone: {threshold} (run stick-calibrate.py to tune)")
+    threshold = DEFAULT_AXIS_THRESHOLD
+    print(f"[SGBU] Analog navigation threshold: {threshold}")
 
     # evdev's own UInput class replaces the old separate "uinput" package.
     capabilities = {
@@ -768,169 +756,11 @@ EOF
 sudo chmod +x "$GAMEPAD_PYTHON"
 
 # -------------------------------
-# 8B. STICK DRIFT CALIBRATION TOOL
-# -------------------------------
-echo -e "${YELLOW}Creating Stick Drift Calibration Tool...${NC}"
-sudo mkdir -p /etc/sgbu
-STICK_CALIBRATE="/usr/local/bin/stick-calibrate.py"
-sudo tee "$STICK_CALIBRATE" >/dev/null << 'EOF'
-#!/usr/bin/env python3
-'''
-created BY marinP/stuffbymax
-description: Samples a gamepad's analog stick at rest, works out how far it
-             drifts from center, and writes a per-device deadzone that
-             gamepad_to_keys.py picks up automatically. Also offers to patch
-             the matching AntiMicroX profile's <deadZone> values so both
-             tools agree on the same dead zone.
-License: MIT
-version: 0.0.1
-'''
-
-import evdev
-import glob
-import os
-import re
-import sys
-import time
-
-CALIBRATION_DIR = "/etc/sgbu"
-SAMPLE_SECONDS = 4
-SAFETY_MARGIN = 1.5   # multiply observed drift by this to leave headroom
-MIN_DEADZONE = 2000
-MAX_DEADZONE = 20000
-
-EXCLUDE_NAMES = ["touchpad", "motion", "accelerometer", "gyro", "sensor", "rumble", "battery"]
-
-
-def find_gamepads():
-    pads = []
-    for path in evdev.list_devices():
-        dev = evdev.InputDevice(path)
-        name_lower = dev.name.lower()
-        if any(ex in name_lower for ex in EXCLUDE_NAMES):
-            continue
-        caps = dev.capabilities()
-        if evdev.ecodes.EV_ABS in caps:
-            abs_codes = [c for c, _ in caps[evdev.ecodes.EV_ABS]]
-            if evdev.ecodes.ABS_X in abs_codes and evdev.ecodes.ABS_Y in abs_codes:
-                pads.append(dev)
-    return pads
-
-
-def sample_axis_drift(dev, seconds=SAMPLE_SECONDS):
-    print(f"[Calibrate] Sampling '{dev.name}' for {seconds}s.")
-    print("[Calibrate] IMPORTANT: let go of the sticks now, don't touch them.")
-    time.sleep(1.5)
-    max_dev = {evdev.ecodes.ABS_X: 0, evdev.ecodes.ABS_Y: 0}
-    absinfo = dict(dev.capabilities().get(evdev.ecodes.EV_ABS, []))
-    centers = {}
-    for code in (evdev.ecodes.ABS_X, evdev.ecodes.ABS_Y):
-        info = absinfo.get(code)
-        centers[code] = (info.min + info.max) // 2 if info else 0
-
-    end_time = time.time() + seconds
-    dev.grab()
-    try:
-        for event in dev.read_loop():
-            if event.type == evdev.ecodes.EV_ABS and event.code in max_dev:
-                deviation = abs(event.value - centers[event.code])
-                if deviation > max_dev[event.code]:
-                    max_dev[event.code] = deviation
-            if time.time() > end_time:
-                break
-    finally:
-        try:
-            dev.ungrab()
-        except Exception:
-            pass
-
-    observed = max(max_dev.values())
-    print(f"[Calibrate] Observed max drift: {observed} raw units")
-    return observed
-
-
-def suggested_deadzone(observed):
-    value = int(observed * SAFETY_MARGIN)
-    return max(MIN_DEADZONE, min(MAX_DEADZONE, value))
-
-
-def write_deadzone(device_name, deadzone):
-    os.makedirs(CALIBRATION_DIR, exist_ok=True)
-    safe = re.sub(r'[^a-zA-Z0-9_-]', '_', device_name)
-    path = os.path.join(CALIBRATION_DIR, f"{safe}.deadzone")
-    with open(path, "w") as f:
-        f.write(str(deadzone))
-    print(f"[Calibrate] Wrote {path} = {deadzone} (used by gamepad_to_keys.py)")
-    return path
-
-
-def patch_antimicrox_profiles(deadzone):
-    # AntiMicroX raw deadzone range is roughly 0-32767, same order of
-    # magnitude as evdev's, so we reuse the value directly.
-    home = os.path.expanduser("~")
-    # stick-calibrate.py normally runs via sudo from the boot menu; fall back
-    # to the invoking user's home if SUDO_USER is set so we patch the right profile.
-    sudo_user = os.environ.get("SUDO_USER")
-    if sudo_user:
-        home = os.path.expanduser(f"~{sudo_user}")
-
-    profiles = glob.glob(os.path.join(home, ".config", "antimicrox", "*.amgp"))
-    profiles += glob.glob(os.path.join(home, ".config", "antimicrox", "*.gamecontroller.amgp"))
-    if not profiles:
-        print("[Calibrate] No AntiMicroX profiles found, skipping profile patch.")
-        return
-
-    for profile in profiles:
-        answer = input(f"[Calibrate] Patch deadZone values in '{profile}'? [y/N]: ").strip().lower()
-        if answer != "y":
-            continue
-        backup = f"{profile}.bak.{int(time.time())}"
-        with open(profile, "r") as f:
-            content = f.read()
-        with open(backup, "w") as f:
-            f.write(content)
-        new_content = re.sub(r"<deadZone>\d+</deadZone>", f"<deadZone>{deadzone}</deadZone>", content)
-        with open(profile, "w") as f:
-            f.write(new_content)
-        print(f"[Calibrate] Patched {profile} (backup saved to {backup})")
-
-
-def main():
-    pads = find_gamepads()
-    if not pads:
-        print("[Calibrate] No gamepad with analog sticks found.")
-        sys.exit(1)
-
-    if len(pads) == 1:
-        dev = pads[0]
-    else:
-        print("[Calibrate] Multiple gamepads found:")
-        for i, p in enumerate(pads):
-            print(f"  {i+1}) {p.name} ({p.path})")
-        choice = input("Select controller number: ").strip()
-        try:
-            dev = pads[int(choice) - 1]
-        except (ValueError, IndexError):
-            print("[Calibrate] Invalid selection.")
-            sys.exit(1)
-
-    observed = sample_axis_drift(dev)
-    deadzone = suggested_deadzone(observed)
-    print(f"[Calibrate] Suggested deadzone: {deadzone}")
-    write_deadzone(dev.name, deadzone)
-    patch_antimicrox_profiles(deadzone)
-    print("[Calibrate] Done. Restart the gamepad mapper / AntiMicroX for changes to take effect.")
-
-
-if __name__ == "__main__":
-    main()
-EOF
-sudo chmod +x "$STICK_CALIBRATE"
-
-# -------------------------------
 # 9. BOOT MENU
 # -------------------------------
 echo -e "${YELLOW}Creating Boot Menu...${NC}"
+sudo mkdir -p /etc/sgbu
+sudo rm -f /usr/local/bin/stick-calibrate.py
 sudo tee "$BOOTMENU" >/dev/null << 'BOOTMENU_EOF'
 #!/usr/bin/env bash
 
@@ -943,8 +773,38 @@ NC='\033[0m'
 DIALOG_TOOL="dialog"
 command -v dialog >/dev/null || DIALOG_TOOL="whiptail"
 MAPPER="/usr/local/bin/gamepad_to_keys.py"
-CALIBRATE="/usr/local/bin/stick-calibrate.py"
 SPLASH_FILE="/etc/sgbu/splash.txt"
+MAPPER_PID=""
+DIALOGRC_FILE=""
+
+if [ "$DIALOG_TOOL" = "dialog" ]; then
+    DIALOGRC_FILE=$(mktemp)
+    cat > "$DIALOGRC_FILE" <<'DIALOGRC'
+use_colors = ON
+use_shadow = OFF
+screen_color = (WHITE,BLUE,ON)
+dialog_color = (WHITE,BLACK,OFF)
+title_color = (CYAN,BLACK,ON)
+border_color = (CYAN,BLACK,ON)
+menubox_color = (WHITE,BLACK,OFF)
+menubox_border_color = (CYAN,BLACK,ON)
+item_color = (WHITE,BLACK,OFF)
+item_selected_color = (BLACK,CYAN,ON)
+button_active_color = (BLACK,CYAN,ON)
+button_inactive_color = (WHITE,BLACK,OFF)
+DIALOGRC
+    export DIALOGRC="$DIALOGRC_FILE"
+fi
+
+cleanup() {
+    if [ -n "$MAPPER_PID" ]; then
+        kill "$MAPPER_PID" 2>/dev/null || true
+    fi
+    if [ -n "$DIALOGRC_FILE" ]; then
+        rm -f -- "$DIALOGRC_FILE"
+    fi
+}
+trap cleanup EXIT
 
 # -------------------------------
 # SPLASH SCREEN
@@ -960,7 +820,7 @@ show_splash() {
         echo "   Simple Game Boot Utility "
         echo "============================"
     fi
-    echo -e "${CYAN}Simple Game Boot Utility${NC}"
+    echo -e "${CYAN}PLAYSTATION 3 - GAME OS | SGBU${NC}"
     sleep 1
 }
 
@@ -1137,11 +997,9 @@ XINITRC
 show_splash
 
 # Start mapper
-MAPPER_PID=""
 if [ -x "$MAPPER" ]; then
     $MAPPER &
     MAPPER_PID=$!
-    trap 'kill $MAPPER_PID 2>/dev/null' EXIT
 fi
 
 while true; do
@@ -1150,54 +1008,52 @@ while true; do
     i=1
 
     if command -v retroarch >/dev/null; then
-        ITEMS+=($i "RetroArch")
+        ITEMS+=($i "GAME     - RetroArch")
         ACTIONS+=("retroarch")
         ((i++))
     fi
 
     STEAM=$(detect_steam || true)
     if [ -n "$STEAM" ]; then
-        ITEMS+=($i "Steam (GamepadUI)")
+        ITEMS+=($i "GAME     - Steam (GamepadUI)")
         ACTIONS+=("steam_gamepadui:$STEAM")
         ((i++))
 
-        ITEMS+=($i "Steam (Normal Mode)")
+        ITEMS+=($i "GAME     - Steam (Desktop Mode)")
         ACTIONS+=("steam_normal:$STEAM")
         ((i++))
     fi
 
     while IFS='|' read -r name exec_cmd; do
-        ITEMS+=($i "Desktop: $name")
+        ITEMS+=($i "SYSTEM   - Desktop: $name")
         ACTIONS+=("session:$exec_cmd")
         ((i++))
     done < <(detect_sessions)
 
-    ITEMS+=($i "Bluetooth Manager")
+    ITEMS+=($i "NETWORK  - Bluetooth Manager")
     ACTIONS+=("bluetooth")
     ((i++))
 
-    ITEMS+=($i "Calibrate Stick Drift")
-    ACTIONS+=("calibrate")
-    ((i++))
-
-    ITEMS+=($i "Terminal")
+    ITEMS+=($i "SYSTEM   - Terminal")
     ACTIONS+=("shell")
     ((i++))
 
-    ITEMS+=($i "Run Diagnostics")
+    ITEMS+=($i "SYSTEM   - Run Diagnostics")
     ACTIONS+=("diagnostic")
     ((i++))
 
-    ITEMS+=($i "Reboot")
+    ITEMS+=($i "POWER    - Reboot")
     ACTIONS+=("reboot")
     ((i++))
 
-    ITEMS+=($i "Shutdown")
+    ITEMS+=($i "POWER    - Shutdown")
     ACTIONS+=("shutdown")
 
     SYSINFO=$(get_system_info)
-    CHOICE=$($DIALOG_TOOL --backtitle "SGBU | v0.0.8-multi | $SYSINFO" \
-        --menu "Select Action" 22 70 14 "${ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 0
+    CHOICE=$($DIALOG_TOOL --backtitle "PLAYSTATION 3 - GAME OS | SGBU | $SYSINFO" \
+        --title "XMB - GAME OS" \
+        --menu "Choose an experience. Navigate with the D-pad or arrow keys." \
+        22 76 14 "${ITEMS[@]}" 3>&1 1>&2 2>&3) || exit 0
 
     ACTION="${ACTIONS[$((CHOICE-1))]}"
 
@@ -1256,18 +1112,6 @@ BTRC
 
     [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
     ;;
-
-        calibrate)
-            [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
-            clear
-            if [ -x "$CALIBRATE" ]; then
-                sudo "$CALIBRATE"
-            else
-                echo -e "${RED}stick-calibrate.py not found or not executable.${NC}"
-            fi
-            read -rp "Press Enter to return to the menu..."
-            [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
-            ;;
 
         session:*)
             [ -n "$MAPPER_PID" ] && kill $MAPPER_PID 2>/dev/null
@@ -1410,13 +1254,6 @@ if python3 -c "import evdev" >/dev/null 2>&1; then
 else
     echo -e "${RED}✗${NC} python-evdev not importable"
 fi
-CAL_COUNT=$(find /etc/sgbu -maxdepth 1 -type f -iname "*.deadzone" 2>/dev/null | wc -l)
-if [ "$CAL_COUNT" -gt 0 ]; then
-    echo -e "${GREEN}✓${NC} $CAL_COUNT stick-drift calibration profile(s) in /etc/sgbu"
-else
-    echo -e "${YELLOW}!${NC} No stick-drift calibration saved yet (run 'Calibrate Stick Drift' from the boot menu)"
-fi
-
 echo -e "\n${CYAN}[Input Devices]${NC}"
 if ls /dev/input/event* >/dev/null 2>&1; then
     COUNT=$(ls /dev/input/event* | wc -l)
@@ -1565,7 +1402,7 @@ echo -e "   Distro: $DISTRO"
 echo -e "================================================${NC}"
 echo -e "${GREEN}✓${NC} Boot menu:   $BOOTMENU"
 echo -e "${GREEN}✓${NC} Gamepad mapper: $GAMEPAD_PYTHON (evdev only, no AUR uinput package needed)"
-echo -e "${GREEN}✓${NC} Stick drift calibration: $STICK_CALIBRATE (menu: 'Calibrate Stick Drift')"
+echo -e "${GREEN}✓${NC} Boot menu theme: PS3/XMB-inspired GAME OS interface"
 echo -e "${GREEN}✓${NC} Steam:       installed (GamepadUI enabled)"
 echo -e "${GREEN}✓${NC} Vulkan:      choice applied (option $VULKAN_CHOICE)"
 echo -e "${GREEN}✓${NC} Bluetooth:   enabled & started"
