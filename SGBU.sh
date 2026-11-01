@@ -124,14 +124,14 @@ pkgs_base() {
             echo "bluez bluez-utils retroarch retroarch-assets-ozone \
                   xorg-server xorg-xinit xorg-xinput xorg-xrandr unzip zip \
                   dialog antimicrox onboard \
-                  python-evdev figlet \
+                  python-evdev \
                   wget curl neovim tmux rfkill"
             ;;
         debian)
             echo "bluez bluez-utils retroarch \
                   xorg xinit xinput x11-xserver-utils \
                   dialog antimicrox onboard \
-                  python3-evdev figlet \
+                  python3-evdev \
                   wget curl unzip zip neovim tmux rfkill antimicrox"
             ;;
         gentoo)
@@ -139,7 +139,7 @@ pkgs_base() {
                   games-emulation/retroarch \
                   x11-base/xorg-server x11-apps/xinit x11-apps/xinput x11-apps/xrandr \
                   dev-util/dialog games-util/antimicrox app-accessibility/onboard \
-                  dev-python/evdev app-misc/figlet \
+                  dev-python/evdev \
                   net-misc/wget net-misc/curl app-arch/unzip app-editors/neovim app-misc/tmux \
                   sys-apps/rfkill"
             ;;
@@ -760,22 +760,52 @@ sudo chmod +x "$GAMEPAD_PYTHON"
 # 9. BOOT MENU
 # -------------------------------
 echo -e "${YELLOW}Creating Boot Menu...${NC}"
-sudo mkdir -p /etc/sgbu
+while true; do
+    read -r -p "Enable the SGBU splash screen before the XMB UI? [y/N]: " SPLASH_CHOICE
+    case "${SPLASH_CHOICE,,}" in
+        y|yes) SPLASH_ENABLED=yes; break ;;
+        n|no|"") SPLASH_ENABLED=no; break ;;
+        *) echo "Please answer yes or no." ;;
+    esac
+done
+sudo install -d -m 755 /etc/sgbu
+printf '%s\n' "$SPLASH_ENABLED" | sudo tee /etc/sgbu/splash.conf >/dev/null
+
 sudo rm -f /usr/local/bin/stick-calibrate.py
 sudo install -m 755 "$SCRIPT_DIR/xmb-ui.sh" "$XMB_UI"
+sudo install -m 755 "$SCRIPT_DIR/gyro-sensor.py" /usr/local/bin/sgbu-gyro-sensor.py
 sudo tee "$BOOTMENU" >/dev/null << 'BOOTMENU_EOF'
 #!/usr/bin/env bash
 
 RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
 MAPPER="/usr/local/bin/gamepad_to_keys.py"
 XMB_UI="/usr/local/bin/sgbu-xmb-ui.sh"
-SPLASH_FILE="/etc/sgbu/splash.txt"
+export SGBU_GYRO_SENSOR="/usr/local/bin/sgbu-gyro-sensor.py"
 MAPPER_PID=""
+
+show_splash() {
+    local enabled=no
+    if [ -r /etc/sgbu/splash.conf ]; then
+        IFS= read -r enabled < /etc/sgbu/splash.conf || true
+    fi
+    [ "$enabled" = yes ] || return 0
+
+    clear
+    if [ -r /etc/sgbu/splash.txt ]; then
+        cat /etc/sgbu/splash.txt
+    elif command -v figlet >/dev/null 2>&1; then
+        figlet -f slant "SGBU" 2>/dev/null || echo "SGBU"
+    else
+        printf '================================\n'
+        printf '   SIMPLE GAME BOOT UTILITY\n'
+        printf '================================\n'
+    fi
+    printf '\033[0;36mSGBU | SYSTEM OS\033[0m\n'
+    sleep 1
+}
 
 cleanup() {
     if [ -n "$MAPPER_PID" ]; then
@@ -784,23 +814,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# -------------------------------
-# SPLASH SCREEN
-# -------------------------------
-show_splash() {
-    clear
-    if [ -f "$SPLASH_FILE" ]; then
-        cat "$SPLASH_FILE"
-    elif command -v figlet >/dev/null; then
-        figlet -f slant "SGBU" 2>/dev/null || echo "SGBU"
-    else
-        echo "============================"
-        echo "   Simple Game Boot Utility "
-        echo "============================"
-    fi
-    echo -e "${CYAN}PLAYSTATION 3 - GAME OS | SGBU${NC}"
-    sleep 1
-}
+show_splash
 
 detect_sessions() {
     for f in /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop; do
@@ -924,8 +938,6 @@ XINITRC
     [ -x "$MAPPER" ] && { $MAPPER & MAPPER_PID=$!; }
 }
 
-show_splash
-
 # Start mapper
 if [ -x "$MAPPER" ]; then
     $MAPPER &
@@ -970,6 +982,14 @@ while true; do
 
     ITEMS+=("$i" "SETTINGS|Run Diagnostics")
     ACTIONS+=("diagnostic")
+    ((i++))
+
+    ITEMS+=("$i" "SETTINGS|Background Color")
+    ACTIONS+=("setting-color")
+    ((i++))
+
+    ITEMS+=("$i" "SETTINGS|Icon Set")
+    ACTIONS+=("setting-icons")
     ((i++))
 
     ITEMS+=("$i" "USERS|Restart System")
@@ -1328,11 +1348,11 @@ echo -e "   Distro: $DISTRO"
 echo -e "================================================${NC}"
 echo -e "${GREEN}✓${NC} Boot menu:   $BOOTMENU"
 echo -e "${GREEN}✓${NC} Gamepad mapper: $GAMEPAD_PYTHON (evdev only, no AUR uinput package needed)"
-echo -e "${GREEN}✓${NC} Boot menu theme: PS3/XMB-inspired GAME OS interface"
+echo -e "${GREEN}✓${NC} XMB UI:      $XMB_UI (UI moved out of the SGBU core script)"
+echo -e "${GREEN}✓${NC} SGBU splash: $SPLASH_ENABLED"
 echo -e "${GREEN}✓${NC} Steam:       installed (GamepadUI enabled)"
 echo -e "${GREEN}✓${NC} Vulkan:      choice applied (option $VULKAN_CHOICE)"
 echo -e "${GREEN}✓${NC} Bluetooth:   enabled & started"
-echo -e "${GREEN}✓${NC} Splash:      drop custom ASCII art at /etc/sgbu/splash.txt, else figlet is used"
 if [ -f "$SCRIPT_DIR/sgbu_logo.png" ]; then
     echo -e "${GREEN}✓${NC} Plymouth boot splash: installed from sgbu_logo.png (reboot to see it)"
 else

@@ -14,14 +14,18 @@ Scripts to create an **automatic boot menu** on TTY1, integrate gamepad support,
 | `install_sgbu_arch.sh` | 🟡 **Deprecated** | Arch-only installer. Being phased out in favor of `SGBU.sh` now that the multi-distro script has full feature parity. Still functional, but won't receive new features going forward. |
 | `SGBU-debian-testing.sh` / `SGBU-debian-old.sh` | 🗄️ **Deprecated / archived** | Early Debian-specific experiments, superseded by `SGBU.sh`. Kept in `old/` for reference only — do not use for new installs. |
 
+> `SGBU.sh` remains the core installer and boot-menu action script. The boot UI implementation has been moved out of the core script into `xmb-ui.sh`, which is installed and launched by the boot menu. Run `bash test_ui.sh` to preview the UI without installing the boot menu.
+
 If you're starting fresh, **run `SGBU.sh`**.
 
 ---
 
+> **GPU telemetry note:** NVIDIA temperature, utilization, and VRAM readings use `nvidia-smi` when the proprietary NVIDIA driver and utility are available. With Nouveau, these readings may be unavailable. Intel and AMD temperatures/load are best-effort readings from Linux kernel sensor interfaces; support and accuracy vary by GPU, driver, and system. Intel/AMD temperature reporting has not been verified across hardware, so treat those readings as informational and expect `N/A` when a sensor is not exposed.
+
 ## Features
 
 * **Automatic Boot Menu** (`bootmenu.sh`, installed to `/usr/local/bin/`)
-  Auto-detects installed apps/sessions and presents an XMB-style interface on TTY1: a horizontal row of PS3-inspired category icons with vertically navigable items beneath. Navigate categories with left/right and items with up/down; Enter selects.
+  `SGBU.sh` handles installation and game/session actions; the UI itself lives in `xmb-ui.sh` and is launched by the boot menu. During installation, you can choose whether to show the optional SGBU splash screen before the XMB UI. To customize the splash, place text or ASCII art in `/etc/sgbu/splash.txt`. It presents a horizontal row of category icons with vertically navigable items on TTY1. It shows the operating system, CPU model/core/thread counts, each detected GPU's model/driver/version/VRAM, live CPU/GPU usage and temperatures, RAM usage/capacity, and a live clock/date (`YYYY/MM/DD HH:MM`). NVIDIA temperature, utilization, and VRAM are queried with `nvidia-smi` when available; Nouveau may not expose those readings. Intel and AMD telemetry uses kernel sensor interfaces where available, but support and accuracy vary by hardware and driver and have not been verified across all systems. Intel GPU load may be estimated from the kernel RC6 residency counter. Unavailable readings display as `N/A`. A second detected Intel, AMD, or NVIDIA GPU gets its own hardware header and usage/temperature line. The Settings category lets you cycle the background color and icon set; choices are saved in `~/.config/sgbu/xmb.conf`. The background color changes by month in Auto mode; background particles respond to compatible PS3/PS4 gyro input when Linux exposes it, otherwise they move automatically. Navigate categories with left/right and items with up/down; Enter selects or changes a setting.
 
 * **Multi-Distro Package Handling**
   Detects Arch (`pacman`), Debian/Ubuntu (`apt-get`), or Gentoo (`emerge`) and installs the right package names for each — base tools, Vulkan drivers, and Steam.
@@ -76,14 +80,23 @@ After reboot, the boot menu appears automatically on TTY1, showing all detected 
 
 To preview the XMB interface without installing the boot menu or launching anything, run `bash test_ui.sh` from the repository on a local terminal or an interactive SSH session.
 
+Customize the preview or boot menu with environment variables:
+
+```bash
+SGBU_XMB_COLOR=purple SGBU_XMB_ICONS=ascii bash test_ui.sh
+```
+
+`SGBU_XMB_COLOR` accepts `auto` (monthly colors), `blue`, `purple`, `green`, `red`, or `cyan`. `SGBU_XMB_ICONS` accepts `unicode` or `ascii`. In the UI, select **Settings → Background Color** or **Icon Set** and press Enter to cycle options; changes persist in `~/.config/sgbu/xmb.conf`. Environment variables override the saved choices for that process. Hardware sensors and detailed GPU information depend on what the OS and installed drivers expose; unavailable readings display as `N/A` or `Unknown`.
+
 ---
 
 ## File Locations
 
 | File / Directory                | Purpose                                              |
 | -------------------------------- | ----------------------------------------------------- |
-| `/usr/local/bin/bootmenu.sh`      | Boot menu launcher script (auto-detects apps/sessions) |
-| `/usr/local/bin/sgbu-xmb-ui.sh`   | XMB-style terminal UI used by the boot menu           |
+| `/usr/local/bin/bootmenu.sh`      | Boot menu action/launcher script                      |
+| `/usr/local/bin/sgbu-xmb-ui.sh`   | XMB-style interface, separated from the SGBU core script |
+| `/usr/local/bin/sgbu-gyro-sensor.py` | Optional Sony controller gyro reader                 |
 | `/usr/local/bin/gamepad_to_keys.py` | Python gamepad-to-keyboard mapper                    |
 | `/usr/local/bin/diagnostic.sh`    | System diagnostics script                              |
 | `conf/retroarch/`                 | Bundled RetroArch config, deployed to `~/.config/retroarch` |
